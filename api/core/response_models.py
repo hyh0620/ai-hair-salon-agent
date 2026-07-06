@@ -1,0 +1,97 @@
+"""
+简化的API响应模型
+
+只保留第一版真正需要的核心功能
+"""
+from pydantic import AliasChoices, BaseModel, Field, model_validator
+from typing import Any, Dict, Optional
+from datetime import datetime
+from config.time_config import time_config
+
+
+class BaseResponse(BaseModel):
+    """基础响应模型"""
+    message: str
+    timestamp: datetime = Field(default_factory=time_config.now)
+
+
+class DataResponse(BaseResponse):
+    """数据响应模型"""
+    data: Any
+
+
+# 预约相关模型
+class AppointmentRequest(BaseModel):
+    user_id: str = "default_user"
+    project: Optional[str] = None
+    service: Optional[str] = None
+    start_time: str
+    duration: str
+    stylist_id: Optional[int] = None
+    stylist_name: Optional[str] = Field(default=None, validation_alias=AliasChoices("stylist_name", "stylist"))
+    gender: Optional[str] = None
+    budget: Optional[str] = None
+    style_preference: Optional[str] = None
+    preference: Optional[str] = None
+    notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_project_or_service(self):
+        if not self.project and not self.service:
+            raise ValueError("project 或 service 至少需要提供一个")
+        return self
+
+
+class AppointmentResponse(BaseModel):
+    appointment_id: Optional[int] = None
+    user_id: str
+    project: str
+    start_time: str
+    end_time: str
+    duration: str
+    price: int
+    status: str
+    stylist_id: int
+    stylist_name: str
+    notes: Optional[str] = None
+
+
+# 咨询相关模型
+class ConsultationRequest(BaseModel):
+    user_id: str
+    question: str
+    category: Optional[str] = None
+
+
+class ConsultationResponse(BaseModel):
+    consultation_id: str
+    question: str
+    answer: str
+    category: Optional[str] = None
+
+
+# 用户行为相关模型
+class UserBehaviorRequest(BaseModel):
+    user_id: str
+    action: str
+    context: Optional[Dict[str, Any]] = None
+
+
+class UserBehaviorResponse(BaseModel):
+    user_id: str
+    action: str
+    timestamp: datetime
+    context: Optional[Dict[str, Any]] = None
+
+
+# 任务分类相关模型
+class TaskClassificationRequest(BaseModel):
+    text: str
+    context: Optional[Dict[str, Any]] = None
+
+
+class TaskClassificationResponse(BaseModel):
+    text: str
+    category: str
+    confidence: float
+    reasoning: Optional[str] = None

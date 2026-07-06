@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识服务状态 - 理发店智能预约系统</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #f5f7fb;
+            color: #1f2937;
+        }
+        .wrap { max-width: 980px; margin: 0 auto; padding: 28px; }
+        .header { margin-bottom: 24px; }
+        .header h1 { margin: 0 0 8px; font-size: 28px; }
+        .header p { margin: 0; color: #667085; }
+        .panel {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 18px;
+        }
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .ok { background: #dcfce7; color: #166534; }
+        .warn { background: #fef3c7; color: #92400e; }
+        .err { background: #fee2e2; color: #991b1b; }
+        dl {
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 10px 16px;
+            margin: 18px 0 0;
+        }
+        dt { color: #667085; }
+        dd { margin: 0; word-break: break-all; }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+        button, a.button {
+            border: 0;
+            border-radius: 6px;
+            background: #2563eb;
+            color: #fff;
+            padding: 10px 14px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        button.secondary, a.secondary { background: #475467; }
+        pre {
+            white-space: pre-wrap;
+            background: #0f172a;
+            color: #e5e7eb;
+            padding: 14px;
+            border-radius: 8px;
+            overflow: auto;
+        }
+        .muted { color: #667085; }
+    </style>
+</head>
+<body>
+<main class="wrap">
+    <section class="header">
+        <h1>知识服务状态</h1>
+        <p>正式咨询知识检索由独立 MCP Knowledge Service 提供，本页面只展示连接与 ingestion 指引。</p>
+    </section>
+
+    {% set gateway = (knowledge_status or {}).get('gateway', {}) %}
+    {% if error %}
+        <section class="panel">
+            <span class="status err">状态加载失败</span>
+            <p>{{ error }}</p>
+        </section>
+    {% else %}
+        <section class="panel">
+            {% if gateway.get('connected') %}
+                <span class="status ok">MCP 知识服务已连接</span>
+            {% elif gateway.get('enabled') %}
+                <span class="status err">MCP 知识服务未连接</span>
+            {% else %}
+                <span class="status warn">MCP 知识服务未启用</span>
+            {% endif %}
+
+            <dl>
+                <dt>知识后端</dt>
+                <dd>{{ (knowledge_status or {}).get('knowledge_backend', 'mcp_knowledge_service') }}</dd>
+                <dt>Collection</dt>
+                <dd><code>{{ gateway.get('collection', 'salon_knowledge') }}</code></dd>
+                <dt>Server Python</dt>
+                <dd><code>{{ gateway.get('server_python', '') }}</code></dd>
+                <dt>Server Module</dt>
+                <dd><code>{{ gateway.get('server_module', '') }}</code></dd>
+                <dt>Server CWD</dt>
+                <dd><code>{{ gateway.get('server_cwd', '') }}</code></dd>
+                <dt>Tools</dt>
+                <dd>{{ gateway.get('tools', [])|join(', ') if gateway.get('tools') else '尚未获取' }}</dd>
+                <dt>Last Error</dt>
+                <dd>{{ gateway.get('last_error') or '无' }}</dd>
+            </dl>
+
+            <div class="actions">
+                <button onclick="refreshStatus()">刷新状态</button>
+                <button class="secondary" onclick="reconnect()">重新连接</button>
+                <a class="button secondary" href="/">返回首页</a>
+            </div>
+        </section>
+    {% endif %}
+
+    <section class="panel">
+        <h2>知识源维护方式</h2>
+        <p class="muted">请在独立项目中维护知识源并通过真实 ingestion pipeline 导入，不再编辑本项目 SQLite 知识库。</p>
+        <pre>cd &lt;PATH_TO_MCP_KNOWLEDGE_SERVICE&gt;
+cp .env.example .env
+# 填写 DASHSCOPE_API_KEY / DASHSCOPE_BASE_URL / DASHSCOPE_EMBEDDING_MODEL
+.venv/bin/python scripts/ingest.py \
+  --path examples/salon/generated_pdfs \
+  --collection salon_knowledge \
+  --force</pre>
+    </section>
+</main>
+
+<script>
+async function refreshStatus() {
+    const res = await fetch('/api/knowledge/');
+    const data = await res.json();
+    alert(`连接状态：${data.gateway.connected ? '已连接' : '未连接'}\nTools：${(data.gateway.tools || []).join(', ')}`);
+}
+
+async function reconnect() {
+    const res = await fetch('/api/knowledge/reconnect', { method: 'POST' });
+    if (!res.ok) {
+        alert('重新连接失败');
+        return;
+    }
+    location.reload();
+}
+</script>
+</body>
+</html>

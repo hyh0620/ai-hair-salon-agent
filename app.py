@@ -1,0 +1,144 @@
+"""
+FastAPI应用程序
+
+主应用程序入口，配置中间件、路由和异常处理
+自动初始化理发店发型师数据并连接外部 RAG MCP 服务
+"""
+from contextlib import asynccontextmanager
+import time
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from services.stylist_service import StylistService
+from services.recommendation_service import RecommendationService
+from services.mcp_knowledge_gateway import get_mcp_knowledge_gateway
+from config.trace_context import new_trace_id, reset_trace_id, set_trace_id
+import logging
+
+# 导入路由
+from api import api_routers
+from api.core.exceptions import api_exception_handler, general_exception_handler, BusinessException
+from web import router as web_router
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+async def initialize_system(app: FastAPI):
+    """系统启动时自动初始化"""
+    try:
+        logger.info("🚀 正在初始化理发店智能预约系统...")
+        
+        # 初始化发型师服务
+        logger.info("✂️ 初始化发型师服务...")
+        stylist_service = StylistService()
+        stylist_service.initialize_default_stylists()
+
+        logger.info("📚 启动 MCP Knowledge Service 知识网关...")
+        rag_gateway = get_mcp_knowledge_gateway()
+        app.state.rag_gateway = rag_gateway
+        try:
+            await rag_gateway.start()
+            if rag_gateway.is_connected:
+                logger.info("✅ MCP 知识网关启动成功")
+            else:
+                logger.warning("⚠️ MCP 知识网关未启用")
+        except Exception as exc:
+            logger.error("❌ MCP 知识网关启动失败，咨询接口将返回 503: %s", exc)
+        
+        # 初始化推荐服务
+        logger.info("🎯 启动推荐调度服务...")
+        recommendation_service = RecommendationService()
+        if recommendation_service.start_scheduler():
+            logger.info("✅ 推荐调度服务启动成功")
+        else:
+            logger.warning("⚠️ 推荐调度服务启动失败")
+        
+        logger.info("✅ 系统初始化完成！")
+        
+    except Exception as e:
+        logger.error(f"❌ 系统初始化失败: {e}")
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await initialize_system(app)
+    try:
+        yield
+    finally:
+        rag_gateway = getattr(app.state, "rag_gateway", None)
+        if rag_gateway:
+            await rag_gateway.stop()
+
+def create_app() -> FastAPI:
+    """创建FastAPI应用实例"""
+    
+    app = FastAPI(
+        title="理发店智能预约AI代理",
+        description="提供理发店预约管理、智能咨询、发型师排班和用户行为分析等功能的API服务",
+        version="1.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        lifespan=lifespan,
+    )
+
+    # 添加CORS中间件
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # 生产环境中应该设置具体的域名
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.middleware("http")
+    async def trace_middleware(request, call_next):
+        trace_id = request.headers.get("x-trace-id") or request.headers.get("X-Trace-ID") or new_trace_id()
+        token = set_trace_id(trace_id)
+        request.state.trace_id = trace_id
+        start = time.perf_counter()
+        logger.info("request_start trace_id=%s method=%s path=%s", trace_id, request.method, request.url.path)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("request_error trace_id=%s method=%s path=%s", trace_id, request.method, request.url.path)
+            raise
+        finally:
+            reset_trace_id(token)
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        response.headers["X-Trace-ID"] = trace_id
+        logger.info(
+            "request_end trace_id=%s method=%s path=%s status=%s duration_ms=%s",
+            trace_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
+
+    # 注册异常处理器
+    app.add_exception_handler(BusinessException, api_exception_handler)
+    app.add_exception_handler(Exception, general_exception_handler)
+
+    # 注册API路由
+    for router in api_routers:
+        app.include_router(router)
+
+    # 注册Web界面路由
+    app.include_router(web_router)
+
+    # 静态文件
+    app.mount("/static", StaticFiles(directory="web/static"), name="static")
+
+    return app
+
+# 创建应用实例
+app = create_app()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8001)
