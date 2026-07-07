@@ -38,7 +38,13 @@ User Request
      -> Citations
 ```
 
-MCP Knowledge Service is a separate repository and process. This application starts or connects to it through official MCP stdio transport.
+When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process through stdio using the configured Python interpreter, module, and working directory.
+
+启用 MCP 后，FastAPI 会根据配置中的 Python 解释器、模块路径和工作目录，通过 stdio 启动 MCP Knowledge Service 子进程。
+
+Manual `python -m src.mcp_server.server` startup is only needed for standalone MCP verification.
+
+只有在单独验证 MCP Server、检查 initialize 或 tools/list 时，才需要手动执行 `python -m src.mcp_server.server`。
 
 ## System Boundaries / 系统职责边界
 
@@ -92,44 +98,35 @@ The AI Hair Salon Agent uses MCP Knowledge Service as an external knowledge retr
 
 ## Quick Start / 快速启动
 
-### Environment Setup
+### Booking-only local start / 仅预约功能本地启动
+
+The default `.env.example` keeps MCP disabled and API keys empty, so the local app can start safely for booking APIs and deterministic service tests.
+
+默认 `.env.example` 关闭 MCP 且不包含真实 Key，因此复制后可以先安全启动 booking-only 版本。
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Edit `.env` locally. Do not commit it.
+Useful endpoints:
 
-Required MCP settings:
+- Home: `http://127.0.0.1:8000/`
+- Swagger: `http://127.0.0.1:8000/docs`
+- Health: `http://127.0.0.1:8000/health`
+- Stylists: `http://127.0.0.1:8000/stylists`
+- Stylist schedule: `http://127.0.0.1:8000/stylist-schedule`
+- Knowledge status: `http://127.0.0.1:8000/knowledge`
 
-```env
-RAG_MCP_ENABLED=true
-RAG_MCP_SERVER_PYTHON=<PATH_TO_MCP_KNOWLEDGE_SERVICE>/.venv/bin/python
-RAG_MCP_SERVER_MODULE=src.mcp_server.server
-RAG_MCP_SERVER_CWD=<PATH_TO_MCP_KNOWLEDGE_SERVICE>
-RAG_MCP_COLLECTION=salon_knowledge
-RAG_MCP_QUERY_TOP_K=4
-```
+### Full consultation demo / 完整咨询演示
 
-Optional weather settings:
-
-```env
-WEATHER_ENABLED=false
-OPENWEATHER_API_KEY=
-WEATHER_LOCATION=
-WEATHER_TIMEOUT_SECONDS=3
-```
-
-Leave weather disabled for normal tests and demos unless you intentionally want to show an external context API. Do not commit a real weather API key.
-
-### Start MCP Knowledge Service
-
-In the MCP Knowledge Service repository:
+Prepare MCP Knowledge Service first:
 
 ```bash
+cd <PATH_TO_MCP_KNOWLEDGE_SERVICE>
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
@@ -145,26 +142,45 @@ python scripts/ingest.py \
   --force
 ```
 
-The business app will start the MCP server with:
+Set the business app `.env`:
 
-```bash
-python -m src.mcp_server.server
+```env
+RAG_MCP_ENABLED=true
+RAG_MCP_SERVER_PYTHON=<PATH_TO_MCP_KNOWLEDGE_SERVICE>/.venv/bin/python
+RAG_MCP_SERVER_MODULE=src.mcp_server.server
+RAG_MCP_SERVER_CWD=<PATH_TO_MCP_KNOWLEDGE_SERVICE>
+RAG_MCP_COLLECTION=salon_knowledge
+RAG_MCP_QUERY_TOP_K=4
 ```
 
-### Start FastAPI
+When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process through stdio using the configured Python interpreter, module, and working directory.
 
-```bash
-python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000
+启用 MCP 后，FastAPI 会根据配置中的 Python 解释器、模块路径和工作目录，通过 stdio 启动 MCP Knowledge Service 子进程。
+
+Manual `python -m src.mcp_server.server` startup is only needed for standalone MCP verification.
+
+只有在单独验证 MCP Server、检查 initialize 或 tools/list 时，才需要手动执行 `python -m src.mcp_server.server`。
+
+### Optional Weather Context Tool / 可选天气上下文工具
+
+```env
+WEATHER_ENABLED=false
+OPENWEATHER_API_KEY=
+WEATHER_LOCATION=
+WEATHER_TIMEOUT_SECONDS=3
 ```
 
-Useful endpoints:
+Leave weather disabled for normal tests and demos unless you intentionally want to show an external context API. Do not commit a real weather API key.
 
-- Home: `http://127.0.0.1:8000/`
-- Swagger: `http://127.0.0.1:8000/docs`
-- Health: `http://127.0.0.1:8000/health`
-- Stylists: `http://127.0.0.1:8000/stylists`
-- Stylist schedule: `http://127.0.0.1:8000/stylist-schedule`
-- Knowledge status: `http://127.0.0.1:8000/knowledge`
+### CORS / 跨域配置
+
+```env
+CORS_ALLOWED_ORIGINS=
+```
+
+Cross-origin access is disabled by default. Configure explicit origins through `CORS_ALLOWED_ORIGINS` only when a separate frontend origin is needed.
+
+默认同源运行不启用跨域；只有前端与 API 使用不同 origin 时，才通过 `CORS_ALLOWED_ORIGINS` 显式配置允许来源。
 
 ## Tests / 测试
 
@@ -177,7 +193,7 @@ Default pytest uses mocks and deterministic local services. It does not call a r
 
 ## Evaluation / 评估结果
 
-### Run Evaluation
+### Run Evaluation / 运行评估
 
 Start three app instances for the full evaluation:
 
@@ -246,10 +262,10 @@ Expected behavior:
 
 ## Documentation / 文档
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Evaluation](docs/EVALUATION.md)
-- [Demo Guide](docs/DEMO_GUIDE.md)
-- [RAG Service Integration](docs/RAG_SERVICE_INTEGRATION.md)
+- [Architecture / 系统架构](docs/ARCHITECTURE.md)
+- [Evaluation / 评估](docs/EVALUATION.md)
+- [Demo Guide / 演示指南](docs/DEMO_GUIDE.md)
+- [RAG Service Integration / RAG 服务集成](docs/RAG_SERVICE_INTEGRATION.md)
 
 ## Skills / 项目工作流
 
@@ -266,3 +282,7 @@ They describe repeatable project workflows and do not contain credentials.
 ## Security / 安全说明
 
 Do not commit `.env`, API keys, local runtime databases, ChromaDB files, BM25 indexes, logs, trace files, or raw local evaluation dumps.
+
+Cross-origin access is disabled by default. Configure explicit origins through `CORS_ALLOWED_ORIGINS` only when a separate frontend origin is needed.
+
+默认同源运行不启用跨域；只有前端与 API 使用不同 origin 时，才通过 `CORS_ALLOWED_ORIGINS` 显式配置允许来源。

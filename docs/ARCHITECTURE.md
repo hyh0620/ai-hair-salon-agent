@@ -1,51 +1,110 @@
-# Architecture
+# Architecture / 系统架构
 
-AI Hair Salon Agent is the business application. MCP Knowledge Service is the independent retrieval service.
+AI Hair Salon Agent is the business application. MCP Knowledge Service is the independent retrieval process used only for consultation knowledge.
 
-## Runtime Flow
+AI Hair Salon Agent 是业务系统；MCP Knowledge Service 是独立知识检索进程，只服务咨询类知识问答。
+
+## Runtime Responsibilities / 运行时职责
 
 ```text
-User
+User Request
   -> FastAPI
-  -> API route / Agent boundary
-  -> AppointmentService OR MCPKnowledgeGateway
-  -> SQLite business data OR MCP Knowledge Service
-  -> Response with trace_id
+  -> Booking flow
+     -> Deterministic booking service
+     -> SQLite
+     -> Optional Weather Context Tool only after conversational booking succeeds
+  -> Consultation flow
+     -> MCP Knowledge Gateway
+     -> MCP Knowledge Service
+     -> Dense Retrieval + BM25 + RRF
+     -> citations
 ```
 
-## Components
+## Booking Flow / 预约路径
 
-- FastAPI: HTTP API, web pages, Swagger, health endpoint, and request trace middleware.
-- Task Classification Agent: classifies appointment, consultation, behavior, and unrelated requests.
-- Appointment Agent/API: calls deterministic business services.
-- AppointmentService: service catalog, price, duration, business hours, stylist schedules, and conflicts.
-- MCPKnowledgeGateway: official MCP `ClientSession` and `stdio_client` wrapper.
-- Consultation API: calls `query_knowledge_hub`, then optionally uses the chat model to generate a user-facing answer.
-- User Behavior Agent: local analytics for service history and reminders. It is not a Memory system.
-- Optional Weather Context Tool: optional external weather API lookup used only after a conversational booking has already succeeded.
+Booking APIs and conversational booking flows use deterministic backend services.
 
-## Responsibility Boundary
+预约 API 和聊天预约流程都使用确定性后端规则。
 
-Deterministic backend:
+```text
+Booking request
+  -> service_catalog
+  -> stylist schedule validation
+  -> business-hour validation
+  -> conflict validation
+  -> SQLite appointment write
+  -> booking response
+```
 
-- Service normalization.
-- Price and duration.
-- Appointment creation.
-- Stylist availability.
-- Conflict detection.
-- Booking status updates.
+Booking rules decide:
 
-MCP RAG:
+- service normalization
+- price and duration
+- stylist availability
+- appointment creation
+- conflict detection
+- booking status updates
 
-- Store information.
-- Hair care guidance.
-- Booking and cancellation policy.
-- Membership and after-sales rules.
-- Source citations.
+预约成功、价格、时长、发型师可用性和冲突结果不由 RAG 或 LLM 决定。
 
-RAG does not decide appointment success. If retrieved text differs from `services/service_catalog.py`, the service catalog wins.
+## Consultation Flow / 咨询路径
 
-## MCP Failure Boundary
+Consultation uses MCP Knowledge Gateway and the external MCP Knowledge Service.
+
+咨询类问题通过 MCP Knowledge Gateway 调用独立 MCP Knowledge Service。
+
+```text
+POST /api/consultation/query
+  -> MCPKnowledgeGateway
+  -> ClientSession.call_tool("query_knowledge_hub")
+  -> MCP Knowledge Service
+  -> Dense Retrieval + BM25 + RRF
+  -> citations
+  -> answer response
+```
+
+RAG retrieves:
+
+- store information
+- hair care guidance
+- booking and cancellation policy
+- membership and after-sales rules
+- cited source metadata
+
+If retrieved text differs from `services/service_catalog.py`, the deterministic service catalog wins.
+
+如果检索文本与 `services/service_catalog.py` 不一致，以确定性服务目录为准。
+
+## MCP Lifecycle / MCP 生命周期
+
+When `RAG_MCP_ENABLED=true`, FastAPI lifespan startup creates `MCPKnowledgeGateway`.
+
+当 `RAG_MCP_ENABLED=true` 时，FastAPI lifespan startup 会创建 `MCPKnowledgeGateway`。
+
+The gateway reads:
+
+- `RAG_MCP_SERVER_PYTHON`
+- `RAG_MCP_SERVER_MODULE`
+- `RAG_MCP_SERVER_CWD`
+- `RAG_MCP_COLLECTION`
+- `RAG_MCP_QUERY_TOP_K`
+
+Startup sequence:
+
+1. Start MCP Knowledge Service as a child process through stdio.
+2. Call `initialize`.
+3. Call `tools/list`.
+4. Verify `query_knowledge_hub`.
+5. Reuse the session for consultation requests.
+6. Close the MCP child process during FastAPI shutdown.
+
+启动顺序是通过 stdio 拉起 MCP 子进程、初始化、发现工具、校验 `query_knowledge_hub`，并在 FastAPI shutdown 时关闭子进程。
+
+Manual `python -m src.mcp_server.server` is only for standalone MCP verification, not the normal business-app startup path.
+
+手动执行 `python -m src.mcp_server.server` 只用于单独验证 MCP Server，不是业务应用的常规启动方式。
+
+## MCP Failure Boundary / MCP 故障边界
 
 When MCP is unavailable, consultation returns:
 
@@ -59,11 +118,13 @@ When MCP is unavailable, consultation returns:
 
 The appointment API does not depend on MCP and remains available.
 
-## Optional Weather Context Tool
+预约 API 不依赖 MCP；MCP 不可用时，预约创建和冲突校验仍保持可用。
+
+## Optional Weather Context Tool / 可选天气上下文工具
 
 The Weather Context Tool is not an MCP Server, not an MCP Tool, and not part of RAG. It is an optional external real-time API lookup.
 
-Flow:
+Weather Context Tool 不是 MCP Server、不是 MCP Tool，也不是 RAG 的一部分。它只是可选外部实时 API 上下文。
 
 ```text
 Conversational booking saved successfully
@@ -72,4 +133,10 @@ Conversational booking saved successfully
   -> append travel reminder only when real weather data is available
 ```
 
-It never changes appointment success, service price, service duration, stylist selection, schedule availability, or conflict validation. If disabled, missing configuration, timeout, or non-200 weather response occurs, the system omits the weather reminder and keeps the booking success response unchanged.
+It never changes appointment success, service price, service duration, stylist selection, schedule availability, or conflict validation.
+
+它不能改变预约是否成功、价格、时长、发型师选择、排班可用性或冲突校验结果。
+
+If disabled, missing configuration, timeout, or non-200 weather response occurs, the system omits the weather reminder and keeps the booking success response unchanged.
+
+如果未启用、缺少配置、超时或天气 API 返回非 200，系统只省略天气提醒，预约成功响应保持不变。

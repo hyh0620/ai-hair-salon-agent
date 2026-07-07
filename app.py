@@ -5,6 +5,7 @@ FastAPI应用程序
 自动初始化理发店发型师数据并连接外部 RAG MCP 服务
 """
 from contextlib import asynccontextmanager
+import os
 import time
 
 from fastapi import FastAPI
@@ -24,6 +25,11 @@ from web import router as web_router
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _get_cors_allowed_origins() -> list[str]:
+    raw_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
 async def initialize_system(app: FastAPI):
     """系统启动时自动初始化"""
@@ -84,14 +90,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 添加CORS中间件
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # 生产环境中应该设置具体的域名
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    cors_allowed_origins = _get_cors_allowed_origins()
+    if cors_allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_allowed_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+        )
 
     @app.middleware("http")
     async def trace_middleware(request, call_next):
