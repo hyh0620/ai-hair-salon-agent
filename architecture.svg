@@ -1,79 +1,131 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-label="AI Hair Salon Agent architecture">
-  <style>
-    .bg { fill: #f8fafc; }
-    .box { fill: #ffffff; stroke: #2563eb; stroke-width: 2; rx: 8; }
-    .service { fill: #ecfdf5; stroke: #059669; stroke-width: 2; rx: 8; }
-    .rag { fill: #fff7ed; stroke: #ea580c; stroke-width: 2; rx: 8; }
-    .optional { fill: #f0f9ff; stroke: #0284c7; stroke-width: 2; stroke-dasharray: 6 4; rx: 8; }
-    .text { font: 16px Arial, sans-serif; fill: #0f172a; }
-    .small { font: 13px Arial, sans-serif; fill: #334155; }
-    .title { font: 24px Arial, sans-serif; font-weight: 700; fill: #0f172a; }
-    .arrow { stroke: #475569; stroke-width: 2; marker-end: url(#arrow); fill: none; }
-    .dashed { stroke-dasharray: 6 4; }
-  </style>
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="auto" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">AI Hair Salon Agent architecture</title>
+  <desc id="desc">Horizontal swimlane diagram showing separate consultation and booking flows. Consultation uses MCP Knowledge Gateway and MCP Knowledge Service for cited retrieval. Booking uses deterministic backend services and SQLite. Optional Weather Context is only triggered after appointment success.</desc>
   <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-      <path d="M0,0 L0,6 L9,3 z" fill="#475569" />
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#334155"/>
     </marker>
+    <marker id="arrow-blue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#16a34a"/>
+    </marker>
+    <marker id="arrow-weather" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      .page { fill: #f8fafc; }
+      .lane-consult { fill: #fff7ed; stroke: #fed7aa; stroke-width: 2; }
+      .lane-booking { fill: #f0fdf4; stroke: #bbf7d0; stroke-width: 2; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+      .entry { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.5; }
+      .client { fill: #f5f3ff; stroke: #7c3aed; stroke-width: 2.5; }
+      .server { fill: #fff7ed; stroke: #ea580c; stroke-width: 2.5; }
+      .booking { fill: #ecfdf5; stroke: #16a34a; stroke-width: 2.5; }
+      .data { fill: #f0fdf4; stroke: #15803d; stroke-width: 2.5; }
+      .result { fill: #ffffff; stroke: #475569; stroke-width: 2.5; }
+      .weather { fill: #f1f5f9; stroke: #64748b; stroke-width: 2.5; stroke-dasharray: 9 7; }
+      .fault { fill: #fff1f2; stroke: #dc2626; stroke-width: 2; }
+      .title { font: 700 30px sans-serif; fill: #0f172a; }
+      .subtitle { font: 16px sans-serif; fill: #475569; }
+      .lane-title { font: 700 22px sans-serif; fill: #0f172a; }
+      .node-title { font: 700 20px sans-serif; fill: #0f172a; }
+      .node-cn { font: 15px sans-serif; fill: #334155; }
+      .small { font: 14px sans-serif; fill: #475569; }
+      .tiny { font: 12px sans-serif; fill: #64748b; }
+      .arrow { fill: none; stroke: #334155; stroke-width: 3; marker-end: url(#arrow); }
+      .arrow-blue { fill: none; stroke: #2563eb; stroke-width: 3; marker-end: url(#arrow-blue); }
+      .arrow-green { fill: none; stroke: #16a34a; stroke-width: 3; marker-end: url(#arrow-green); }
+      .arrow-weather { fill: none; stroke: #64748b; stroke-width: 3; stroke-dasharray: 9 7; marker-end: url(#arrow-weather); }
+    </style>
   </defs>
-  <rect class="bg" x="0" y="0" width="1120" height="640"/>
-  <text class="title" x="40" y="48">AI Hair Salon Agent</text>
 
-  <rect class="box" x="40" y="100" width="170" height="80"/>
-  <text class="text" x="70" y="132">User Request</text>
-  <text class="small" x="65" y="156">Web / API</text>
+  <rect class="page" x="0" y="0" width="1600" height="900"/>
+  <text class="title" x="60" y="60">AI Hair Salon Agent</text>
+  <text class="subtitle" x="60" y="88">Separate deterministic booking from MCP-based consultation retrieval</text>
 
-  <rect class="box" x="270" y="90" width="190" height="100"/>
-  <text class="text" x="320" y="124">FastAPI</text>
-  <text class="small" x="298" y="150">routes, Swagger</text>
-  <text class="small" x="300" y="170">trace_id, health</text>
+  <rect class="lane-consult" x="430" y="145" width="1100" height="300" rx="18"/>
+  <text class="lane-title" x="455" y="183">Consultation Flow / 咨询链路</text>
 
-  <rect class="box" x="530" y="70" width="220" height="90"/>
-  <text class="text" x="570" y="105">Task / Agent Layer</text>
-  <text class="small" x="558" y="132">classification and dialog</text>
+  <rect class="lane-booking" x="430" y="480" width="1100" height="250" rx="18"/>
+  <text class="lane-title" x="455" y="518">Booking Flow / 预约链路</text>
 
-  <rect class="service" x="520" y="230" width="250" height="130"/>
-  <text class="text" x="552" y="264">Deterministic Booking</text>
-  <text class="small" x="548" y="292">service_catalog + SQLite</text>
-  <text class="small" x="548" y="316">stylist schedule checks</text>
-  <text class="small" x="548" y="340">price, duration, conflicts</text>
+  <rect class="panel" x="55" y="145" width="320" height="585" rx="18"/>
+  <text class="lane-title" x="85" y="183">Entry &amp; Routing / 入口与路由</text>
 
-  <rect class="rag" x="820" y="80" width="250" height="130"/>
-  <text class="text" x="858" y="115">MCP Knowledge Gateway</text>
-  <text class="small" x="850" y="143">ClientSession + stdio_client</text>
-  <text class="small" x="850" y="167">query_knowledge_hub</text>
-  <text class="small" x="850" y="191">503 on MCP unavailable</text>
+  <rect class="entry" x="95" y="215" width="240" height="92" rx="12"/>
+  <text class="node-title" x="130" y="250">User Request</text>
+  <text class="node-cn" x="138" y="276">Web / API</text>
 
-  <rect class="rag" x="820" y="270" width="250" height="170"/>
-  <text class="text" x="862" y="304">MCP Knowledge Service</text>
-  <text class="small" x="850" y="334">Dense Retrieval</text>
-  <text class="small" x="850" y="358">BM25</text>
-  <text class="small" x="850" y="382">RRF Fusion</text>
-  <text class="small" x="850" y="406">citations</text>
+  <rect class="entry" x="95" y="345" width="240" height="110" rx="12"/>
+  <text class="node-title" x="150" y="380">FastAPI</text>
+  <text class="small" x="133" y="407">routes · Swagger</text>
+  <text class="small" x="127" y="431">trace_id · health</text>
 
-  <rect class="service" x="520" y="430" width="250" height="110"/>
-  <text class="text" x="568" y="464">Business Database</text>
-  <text class="small" x="570" y="492">appointments</text>
-  <text class="small" x="570" y="516">stylists and schedules</text>
+  <rect class="entry" x="95" y="500" width="240" height="118" rx="12"/>
+  <text class="node-title" x="119" y="535">Task / Agent Layer</text>
+  <text class="small" x="125" y="562">classification · dialog</text>
+  <text class="small" x="162" y="586">routing only</text>
 
-  <rect class="box" x="270" y="430" width="190" height="110"/>
-  <text class="text" x="300" y="464">Appointment Success</text>
-  <text class="small" x="304" y="492">normal booking message</text>
-  <text class="small" x="308" y="516">weather may be omitted</text>
+  <path class="arrow-blue" d="M215 307 L215 345"/>
+  <path class="arrow-blue" d="M215 455 L215 500"/>
 
-  <rect class="optional" x="40" y="430" width="180" height="110"/>
-  <text class="text" x="74" y="464">Optional Weather</text>
-  <text class="small" x="72" y="492">External API context</text>
-  <text class="small" x="80" y="516">post-booking only</text>
+  <rect class="client" x="485" y="235" width="270" height="125" rx="12"/>
+  <text class="node-title" x="516" y="270">MCP Knowledge Gateway</text>
+  <text class="node-cn" x="550" y="296">MCP Client</text>
+  <text class="small" x="530" y="322">ClientSession · stdio_client</text>
 
-  <path class="arrow" d="M210 140 L270 140"/>
-  <path class="arrow" d="M460 140 L530 120"/>
-  <path class="arrow" d="M640 160 L640 230"/>
-  <path class="arrow" d="M750 115 L820 130"/>
-  <path class="arrow" d="M945 210 L945 270"/>
-  <path class="arrow" d="M645 360 L645 430"/>
-  <path class="arrow" d="M820 360 L770 330"/>
-  <path class="arrow" d="M270 165 C220 250 220 430 520 485"/>
-  <path class="arrow" d="M520 300 C430 330 365 380 365 430"/>
-  <path class="arrow dashed" d="M270 485 L220 485"/>
+  <rect class="server" x="840" y="215" width="315" height="165" rx="12"/>
+  <text class="node-title" x="870" y="250">MCP Knowledge Service</text>
+  <text class="node-cn" x="923" y="276">MCP Server</text>
+  <text class="small" x="904" y="304">query_knowledge_hub</text>
+  <text class="small" x="884" y="330">Dense Retrieval · BM25 · RRF</text>
+  <text class="small" x="960" y="356">citations</text>
+
+  <rect class="result" x="1240" y="245" width="245" height="105" rx="12"/>
+  <text class="node-title" x="1275" y="280">Consultation Result</text>
+  <text class="small" x="1308" y="307">with Citations</text>
+  <text class="node-cn" x="1304" y="331">咨询结果（含引用）</text>
+
+  <rect class="fault" x="505" y="378" width="225" height="48" rx="10"/>
+  <text class="tiny" x="535" y="397">MCP unavailable</text>
+  <text class="tiny" x="526" y="415">consultation returns 503</text>
+
+  <path class="arrow-blue" d="M335 559 L485 298"/>
+  <path class="arrow" d="M755 298 L840 298"/>
+  <path class="arrow" d="M1155 298 L1240 298"/>
+
+  <rect class="booking" x="485" y="560" width="290" height="132" rx="12"/>
+  <text class="node-title" x="522" y="595">Deterministic Booking</text>
+  <text class="small" x="548" y="622">service catalog</text>
+  <text class="small" x="526" y="648">price · duration</text>
+  <text class="small" x="520" y="674">schedule · conflicts</text>
+
+  <rect class="data" x="855" y="560" width="275" height="132" rx="12"/>
+  <text class="node-title" x="888" y="595">Business Database</text>
+  <text class="small" x="943" y="622">SQLite</text>
+  <text class="small" x="918" y="648">appointments</text>
+  <text class="small" x="898" y="674">stylists · schedules</text>
+
+  <rect class="result" x="1240" y="575" width="245" height="102" rx="12"/>
+  <text class="node-title" x="1278" y="610">Appointment Success</text>
+  <text class="node-cn" x="1310" y="638">预约成功</text>
+
+  <rect class="weather" x="1220" y="755" width="285" height="90" rx="12"/>
+  <text class="node-title" x="1260" y="786">Optional Weather Context</text>
+  <text class="small" x="1268" y="811">external weather API</text>
+  <text class="small" x="1286" y="833">post-booking only</text>
+
+  <text class="tiny" x="1035" y="800">not MCP · not RAG</text>
+  <text class="tiny" x="995" y="820">failure does not affect booking</text>
+
+  <path class="arrow-green" d="M335 559 L485 626"/>
+  <path class="arrow-green" d="M775 626 L855 626"/>
+  <path class="arrow-green" d="M1130 626 L1240 626"/>
+  <path class="arrow-weather" d="M1363 677 L1363 755"/>
+
+  <rect class="panel" x="60" y="785" width="910" height="72" rx="14"/>
+  <text class="small" x="88" y="813">Deterministic booking decides price, duration, availability and conflicts.</text>
+  <text class="small" x="88" y="838">价格、时长、排班、预约成功和冲突由确定性后端决定；MCP/RAG 只用于咨询类知识检索。</text>
 </svg>

@@ -24,35 +24,11 @@ AI Hair Salon Agent is a FastAPI application for salon appointment booking and c
 
 ![Architecture](./architecture.svg)
 
-```text
-User Request
-  -> FastAPI
-  -> Booking flow
-     -> Deterministic booking service
-     -> SQLite
-     -> Optional Weather Context Tool only after booking succeeds
-  -> Consultation flow
-     -> MCP Knowledge Gateway
-     -> MCP Knowledge Service
-     -> Dense + BM25 + RRF
-     -> Citations
-```
+- Consultation Flow: MCP Knowledge Gateway calls MCP Knowledge Service (MCP Server) and returns Consultation Result with Citations.
+- Booking Flow: deterministic services and SQLite decide price, duration, schedules, conflicts, and Appointment Success.
+- Optional Weather: Optional Weather Context only appends a non-blocking reminder after Appointment Success; it is not MCP or RAG.
 
-When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process through stdio using the configured Python interpreter, module, and working directory.
-
-启用 MCP 后，FastAPI 会根据配置中的 Python 解释器、模块路径和工作目录，通过 stdio 启动 MCP Knowledge Service 子进程。
-
-`python -m src.mcp_server.server` starts an stdio JSON-RPC server, not an interactive CLI.
-
-For normal application use, let the MCP client launch it automatically.
-
-For standalone verification, start it through an MCP client or verification script that sends `initialize`, `tools/list`, and tool calls.
-
-`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是可直接交互查询的 CLI。
-
-正常业务运行时，应由 MCP Client 自动拉起该进程。
-
-单独验证时，应通过 MCP Client 或验证脚本发送 `initialize`、`tools/list` 和 tool call，而不是只在终端直接运行该命令。
+中文说明：咨询链路通过 MCP Knowledge Gateway 调用 MCP Knowledge Service 并返回引用；预约链路由确定性服务和 SQLite 决定业务结果；天气只在预约成功后可选追加提醒。
 
 ## System Boundaries / 系统职责边界
 
