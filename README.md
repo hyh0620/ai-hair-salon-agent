@@ -260,7 +260,7 @@ They describe repeatable project workflows and do not contain credentials.
 
 - The current public evaluation uses a small salon knowledge corpus: 7 documents and 24 chunks.
 - Hit@1 is not perfect; retrieval quality is reported separately from functional API contracts.
-- Rerank, Ragas, Memory, Graph RAG, multimodal workflows, Docker, and Kubernetes are not part of the verified public release.
+- Advanced retrieval, memory, orchestration, deployment, and media-processing extensions are not part of the verified public release.
 - The optional weather tool is not part of the MCP architecture and is not used as evidence for MCP capability.
 
 ## Security

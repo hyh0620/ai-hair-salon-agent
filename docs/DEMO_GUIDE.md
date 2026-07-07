@@ -71,5 +71,5 @@ python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000
 
 - Do not claim production deployment.
 - Do not claim RAG is perfect.
-- Do not claim Rerank, Ragas, Memory, Graph RAG, multimodal workflows, Docker, or Kubernetes are implemented in this public release.
+- Do not claim advanced retrieval, memory, orchestration, deployment, or media-processing extensions are implemented in this public release.
 - Do not describe the weather context tool as MCP.
