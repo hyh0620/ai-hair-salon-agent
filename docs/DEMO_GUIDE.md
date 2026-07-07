@@ -38,9 +38,17 @@ python scripts/ingest.py \
   --force
 ```
 
-Manual `python -m src.mcp_server.server` startup is only needed for standalone MCP verification such as checking `initialize` or `tools/list`.
+`python -m src.mcp_server.server` starts an stdio JSON-RPC server, not an interactive CLI.
 
-只有在单独验证 MCP Server、检查 `initialize` 或 `tools/list` 时，才需要手动执行 `python -m src.mcp_server.server`。
+For normal application use, let the MCP client launch it automatically.
+
+For standalone verification, start it through an MCP client or verification script that sends `initialize`, `tools/list`, and tool calls.
+
+`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是可直接交互查询的 CLI。
+
+正常业务运行时，应由 MCP Client 自动拉起该进程。
+
+单独验证时，应通过 MCP Client 或验证脚本发送 `initialize`、`tools/list` 和 tool call，而不是只在终端直接运行该命令。
 
 ## Start Business App / 启动业务应用
 
@@ -67,6 +75,10 @@ RAG_MCP_SERVER_CWD=<PATH_TO_MCP_KNOWLEDGE_SERVICE>
 RAG_MCP_COLLECTION=salon_knowledge
 RAG_MCP_QUERY_TOP_K=4
 ```
+
+After updating `.env`, restart FastAPI so its lifespan startup creates a new MCP gateway with MCP enabled.
+
+修改 `.env` 后，需要重启 FastAPI，使 lifespan startup 按启用后的 MCP 配置重新创建 MCP gateway。
 
 When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process through stdio using the configured Python interpreter, module, and working directory.
 

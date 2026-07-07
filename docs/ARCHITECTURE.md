@@ -100,9 +100,17 @@ Startup sequence:
 
 启动顺序是通过 stdio 拉起 MCP 子进程、初始化、发现工具、校验 `query_knowledge_hub`，并在 FastAPI shutdown 时关闭子进程。
 
-Manual `python -m src.mcp_server.server` is only for standalone MCP verification, not the normal business-app startup path.
+`python -m src.mcp_server.server` starts an stdio JSON-RPC server, not an interactive CLI.
 
-手动执行 `python -m src.mcp_server.server` 只用于单独验证 MCP Server，不是业务应用的常规启动方式。
+For normal application use, let the MCP client launch it automatically.
+
+For standalone verification, start it through an MCP client or verification script that sends `initialize`, `tools/list`, and tool calls.
+
+`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是可直接交互查询的 CLI。
+
+正常业务运行时，应由 MCP Client 自动拉起该进程。
+
+单独验证时，应通过 MCP Client 或验证脚本发送 `initialize`、`tools/list` 和 tool call，而不是只在终端直接运行该命令。
 
 ## MCP Failure Boundary / MCP 故障边界
 
