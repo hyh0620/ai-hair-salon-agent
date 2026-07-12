@@ -163,7 +163,7 @@ RAG_MCP_QUERY_TOP_K=4
 | `RAG_MCP_ENABLED` | 是否启用 MCP Knowledge Service | 默认 `false`。只有路径和 Provider 准备完成后再启用。 |
 | `RAG_MCP_SERVER_PYTHON`、`RAG_MCP_SERVER_CWD` | MCP 子进程解释器与工作目录 | 必须指向有效的独立知识服务 checkout。 |
 | `RAG_MCP_COLLECTION` | 咨询使用的 collection | 示例使用 `salon_knowledge`。 |
-| `WEATHER_ENABLED`、`OPENWEATHER_API_KEY`、`WEATHER_LOCATION` | 可选天气上下文 | 默认关闭；缺配置或请求失败时不影响预约。 |
+| `WEATHER_ENABLED`、`WEATHER_PROVIDER`、`WEATHER_LOCATION_NAME`、`WEATHER_LATITUDE`、`WEATHER_LONGITUDE`、`WEATHER_TIMEZONE` | 可选天气上下文 | 默认使用无需 API Key 的 Open-Meteo 上海预报；仅在预约写入成功后查询，失败不影响预约。 |
 | `CORS_ALLOWED_ORIGINS` | 显式跨域 allowlist | 默认空值，仅同源；不使用 wildcard。 |
 
 真实 Key 只放在本地 `.env`，不要提交到 Git。

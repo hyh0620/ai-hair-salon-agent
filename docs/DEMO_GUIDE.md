@@ -92,7 +92,7 @@ When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process t
 4. Repeat the same stylist/time and show HTTP 409.
 5. Ask a consultation question and show citations.
 6. Run `eval/mcp_runtime_failure_e2e.py` and show consultation 503 while booking remains available.
-7. Optional: enable `WEATHER_ENABLED=true` with a private `OPENWEATHER_API_KEY` and `WEATHER_LOCATION` to show a post-booking travel reminder. This is not part of MCP or RAG.
+7. Optional Weather Context Tool defaults to `WEATHER_ENABLED=true` with Open-Meteo and the configured Shanghai coordinates. It requires no API Key, runs only after a booking is saved, and is not part of MCP or RAG.
 
 ## Suggested Questions / 建议演示问题
 

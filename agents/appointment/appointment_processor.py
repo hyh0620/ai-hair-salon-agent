@@ -8,7 +8,9 @@ import os
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Dict, Any, AsyncGenerator, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .input_parser import InputParser
 from .stylist_finder import StylistFinder
 from .message_builder import MessageBuilder
@@ -34,6 +36,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class WeatherContextResult:
     """Result from the optional external weather context lookup."""
@@ -42,117 +51,254 @@ class WeatherContextResult:
     context: str = ""
     reason: str = ""
     http_status: Optional[int] = None
+    forecast_time: Optional[datetime] = None
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    precipitation_probability: Optional[float] = None
+    precipitation: Optional[float] = None
+    weather_code: Optional[int] = None
 
 
 class WeatherTool(BaseTool):
     """Optional external weather context tool for post-booking travel reminders."""
 
-    name: str = "get_current_weather"
-    description: str = "获取配置位置的当前天气上下文，用于预约成功后的可选出行提醒"
-    _api_key: Optional[str] = PrivateAttr(default=None)
-    _enabled: bool = PrivateAttr(default=False)
-    _location: str = PrivateAttr(default="")
+    name: str = "get_booking_weather_forecast"
+    description: str = "获取预约开始时间对应的上海天气预报，用于预约成功后的可选出行提醒"
+    _enabled: bool = PrivateAttr(default=True)
+    _provider: str = PrivateAttr(default="open_meteo")
+    _location_name: str = PrivateAttr(default="上海")
+    _latitude: float = PrivateAttr(default=31.2304)
+    _longitude: float = PrivateAttr(default=121.4737)
+    _timezone_name: str = PrivateAttr(default="Asia/Shanghai")
+    _forecast_days: int = PrivateAttr(default=16)
     _timeout_seconds: float = PrivateAttr(default=3.0)
-    _base_url: str = PrivateAttr(default="https://api.openweathermap.org/data/2.5/weather")
+    _base_url: str = PrivateAttr(default="https://api.open-meteo.com/v1/forecast")
     
     def __init__(self):
         super().__init__()
-        self._enabled = _env_bool("WEATHER_ENABLED", False)
-        self._api_key = os.getenv("OPENWEATHER_API_KEY") or None
-        self._location = (os.getenv("WEATHER_LOCATION") or "").strip()
+        self._enabled = _env_bool("WEATHER_ENABLED", True)
+        self._provider = (os.getenv("WEATHER_PROVIDER") or "open_meteo").strip().lower()
+        self._location_name = (os.getenv("WEATHER_LOCATION_NAME") or "上海").strip() or "上海"
+        self._latitude = _env_float("WEATHER_LATITUDE", 31.2304)
+        self._longitude = _env_float("WEATHER_LONGITUDE", 121.4737)
+        self._timezone_name = (os.getenv("WEATHER_TIMEZONE") or "Asia/Shanghai").strip()
         self._timeout_seconds = _env_float("WEATHER_TIMEOUT_SECONDS", 3.0)
+        self._forecast_days = max(1, min(_env_int("WEATHER_FORECAST_DAYS", 16), 16))
 
     @property
     def is_configured(self) -> bool:
-        return bool(self._enabled and self._api_key and self._location)
+        return bool(
+            self._enabled
+            and self._provider == "open_meteo"
+            and self._timezone_name
+            and -90 <= self._latitude <= 90
+            and -180 <= self._longitude <= 180
+        )
 
-    def omission_reason(self, location: Optional[str] = None) -> Optional[str]:
-        target_location = (location or self._location or "").strip()
+    @property
+    def provider(self) -> str:
+        return self._provider
+
+    @property
+    def location_name(self) -> str:
+        return self._location_name
+
+    def omission_reason(self) -> Optional[str]:
         if not self._enabled:
             return "disabled"
-        if not target_location:
-            return "missing_location"
-        if not self._api_key:
-            return "missing_api_key"
+        if self._provider != "open_meteo":
+            return "unsupported_provider"
+        if not self._timezone_name:
+            return "invalid_appointment_time"
         return None
-    
-    async def get_weather_context(self, location: Optional[str] = None) -> WeatherContextResult:
-        """Fetch real weather context when explicitly configured.
 
-        No synthetic weather is returned. Missing config, timeout, network errors,
-        and non-200 responses all produce an omitted/unavailable status.
-        """
-        target_location = (location or self._location or "").strip()
-        reason = self.omission_reason(target_location)
+    async def get_weather_context(
+        self,
+        appointment_time: datetime | str | None = None,
+    ) -> WeatherContextResult:
+        """Fetch Shanghai's hourly forecast nearest to the appointment start."""
+        reason = self.omission_reason()
         if reason:
-            logger.info("weather_context_omitted reason=%s", reason)
+            self._log_result(appointment_time, None, "omitted", reason)
             return WeatherContextResult(status="omitted", reason=reason)
-        
+
+        parsed_time = self._parse_appointment_time(appointment_time)
+        if parsed_time is None:
+            self._log_result(appointment_time, None, "omitted", "invalid_appointment_time")
+            return WeatherContextResult(status="omitted", reason="invalid_appointment_time")
+        if parsed_time < self._now() - timedelta(minutes=5):
+            self._log_result(parsed_time, None, "omitted", "past_appointment")
+            return WeatherContextResult(status="omitted", reason="past_appointment")
+
         try:
             import aiohttp
 
             params = {
-                "q": target_location,
-                "appid": self._api_key,
-                "units": "metric",
-                "lang": "zh_cn"
+                "latitude": self._latitude,
+                "longitude": self._longitude,
+                "hourly": ",".join([
+                    "temperature_2m",
+                    "apparent_temperature",
+                    "relative_humidity_2m",
+                    "precipitation_probability",
+                    "precipitation",
+                    "weather_code",
+                    "wind_speed_10m",
+                ]),
+                "timezone": self._timezone_name,
+                "forecast_days": self._forecast_days,
             }
             timeout = aiohttp.ClientTimeout(total=self._timeout_seconds)
-            
+
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(self._base_url, params=params) as response:
                     if response.status == 200:
-                        data = await response.json()
-                        context = self._format_weather_context(target_location, data)
-                        if context:
-                            logger.info("weather_context_available location=%s", target_location)
-                            return WeatherContextResult(status="available", context=context)
-                        logger.warning("weather_context_unavailable reason=malformed_response")
-                        return WeatherContextResult(status="unavailable", reason="malformed_response")
+                        try:
+                            data = await response.json()
+                        except Exception:
+                            self._log_result(parsed_time, None, "unavailable", "malformed_response")
+                            return WeatherContextResult(status="unavailable", reason="malformed_response")
+                        result = self._select_forecast(parsed_time, data)
+                        self._log_result(parsed_time, result.forecast_time, result.status, result.reason)
+                        return result
 
-                    logger.warning(
-                        "weather_context_unavailable reason=http_status status=%s",
-                        response.status,
-                    )
+                    reason = "http_4xx" if 400 <= response.status < 500 else "http_5xx"
+                    self._log_result(parsed_time, None, "unavailable", reason)
                     return WeatherContextResult(
                         status="unavailable",
-                        reason=f"http_{response.status}",
+                        reason=reason,
                         http_status=response.status,
                     )
         except asyncio.TimeoutError:
-            logger.warning("weather_context_unavailable reason=timeout")
+            self._log_result(parsed_time, None, "unavailable", "timeout")
             return WeatherContextResult(status="unavailable", reason="timeout")
-        except Exception as exc:
-            logger.warning("weather_context_unavailable reason=%s", type(exc).__name__)
-            return WeatherContextResult(status="unavailable", reason=type(exc).__name__)
+        except Exception:
+            self._log_result(parsed_time, None, "unavailable", "network_error")
+            return WeatherContextResult(status="unavailable", reason="network_error")
+
+    def _select_forecast(self, appointment_time: datetime, data: Dict[str, Any]) -> WeatherContextResult:
+        try:
+            hourly = data.get("hourly") or {}
+            raw_times = hourly.get("time") or []
+            timezone_info = ZoneInfo(self._timezone_name)
+            forecast_times = [
+                datetime.fromisoformat(value).replace(tzinfo=timezone_info)
+                for value in raw_times
+            ]
+            required = (
+                "temperature_2m",
+                "apparent_temperature",
+                "relative_humidity_2m",
+                "precipitation_probability",
+                "precipitation",
+                "weather_code",
+                "wind_speed_10m",
+            )
+            if not forecast_times or any(len(hourly.get(field) or []) != len(forecast_times) for field in required):
+                return WeatherContextResult(status="unavailable", reason="malformed_response")
+
+            horizon_end = forecast_times[-1] + timedelta(hours=1)
+            if appointment_time < forecast_times[0] or appointment_time >= horizon_end:
+                return WeatherContextResult(status="omitted", reason="outside_forecast_horizon")
+
+            index = min(
+                range(len(forecast_times)),
+                key=lambda item: abs((forecast_times[item] - appointment_time).total_seconds()),
+            )
+            selected_time = forecast_times[index]
+            temperature = float(hourly["temperature_2m"][index])
+            apparent_temperature = float(hourly["apparent_temperature"][index])
+            humidity = float(hourly["relative_humidity_2m"][index])
+            precipitation_probability = float(hourly["precipitation_probability"][index])
+            precipitation = float(hourly["precipitation"][index])
+            weather_code = int(hourly["weather_code"][index])
+            wind_speed = float(hourly["wind_speed_10m"][index])
+            description = self._weather_code_description(weather_code)
+            context = (
+                f"天气提醒：预计预约时段{self._location_name}{description}，"
+                f"气温{_format_number(temperature)}°C，体感{_format_number(apparent_temperature)}°C，"
+                f"降水概率{_format_number(precipitation_probability)}%，"
+                f"湿度{_format_number(humidity)}%，风速{_format_number(wind_speed)}km/h。"
+            )
+            return WeatherContextResult(
+                status="available",
+                context=context,
+                forecast_time=selected_time,
+                temperature=temperature,
+                humidity=humidity,
+                precipitation_probability=precipitation_probability,
+                precipitation=precipitation,
+                weather_code=weather_code,
+            )
+        except (TypeError, ValueError, KeyError, IndexError, ZoneInfoNotFoundError):
+            return WeatherContextResult(status="unavailable", reason="malformed_response")
+
+    def _parse_appointment_time(self, value: datetime | str | None) -> Optional[datetime]:
+        try:
+            timezone_info = ZoneInfo(self._timezone_name)
+            if isinstance(value, datetime):
+                parsed = value
+            elif isinstance(value, str) and value.strip():
+                parsed = datetime.fromisoformat(value.strip())
+            else:
+                return None
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone_info)
+            return parsed.astimezone(timezone_info)
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
+            return None
+
+    def _now(self) -> datetime:
+        return datetime.now(ZoneInfo(self._timezone_name))
 
     @staticmethod
-    def _format_weather_context(location: str, data: Dict[str, Any]) -> str:
-        try:
-            main = data.get("main") or {}
-            weather_items = data.get("weather") or []
-            description = str((weather_items[0] or {}).get("description") or "").strip()
-            temp = main.get("temp")
-            feels_like = main.get("feels_like")
-            humidity = main.get("humidity")
-            wind_speed = (data.get("wind") or {}).get("speed", 0)
-            if not description or temp is None or feels_like is None or humidity is None:
-                return ""
-            return (
-                f"{location}当前天气：{description}，"
-                f"气温{_format_number(temp)}°C（体感{_format_number(feels_like)}°C），"
-                f"湿度{_format_number(humidity)}%，风速{_format_number(wind_speed)}m/s。"
-            )
-        except (TypeError, KeyError, IndexError):
-            return ""
-    
-    def _run(self, location: Optional[str] = None) -> str:
+    def _weather_code_description(code: int) -> str:
+        if code == 0:
+            return "晴"
+        if 1 <= code <= 3:
+            return "多云"
+        if code in {45, 48}:
+            return "有雾"
+        if 51 <= code <= 57:
+            return "有毛毛雨"
+        if 61 <= code <= 67:
+            return "有雨"
+        if 71 <= code <= 77:
+            return "有雪"
+        if 80 <= code <= 82:
+            return "有阵雨"
+        if code in {85, 86}:
+            return "有阵雪"
+        if code == 95:
+            return "有雷暴"
+        if code in {96, 99}:
+            return "有雷暴伴冰雹"
+        return "天气情况待确认"
+
+    def _log_result(
+        self,
+        appointment_time: datetime | str | None,
+        forecast_time: Optional[datetime],
+        status: str,
+        reason: str,
+    ) -> None:
+        logger.info(
+            "weather_forecast provider=%s location=Shanghai appointment_time=%s "
+            "selected_forecast_time=%s status=%s reason=%s",
+            self._provider,
+            appointment_time.isoformat() if isinstance(appointment_time, datetime) else appointment_time,
+            forecast_time.isoformat() if forecast_time else None,
+            status,
+            reason or "none",
+        )
+
+    def _run(self, appointment_time: datetime | str | None = None) -> str:
         """Synchronous wrapper used by LangChain Tool interfaces."""
-        return asyncio.run(self.get_weather_context(location)).context
+        return asyncio.run(self.get_weather_context(appointment_time)).context
     
-    async def _arun(self, location: Optional[str] = None) -> str:
+    async def _arun(self, appointment_time: datetime | str | None = None) -> str:
         """Async wrapper used by LangChain Tool interfaces."""
-        return (await self.get_weather_context(location)).context
+        return (await self.get_weather_context(appointment_time)).context
 
 
 def _format_number(value: Any) -> str:
@@ -395,7 +541,7 @@ class AppointmentProcessor:
 
     async def _create_optional_weather_reminder(self, appointment_history: Dict[str, Any]) -> str:
         try:
-            result = await self.weather_tool.get_weather_context()
+            result = await self.weather_tool.get_weather_context(appointment_history.get("start_time"))
         except Exception as exc:
             logger.warning("weather_context_unavailable reason=%s", type(exc).__name__)
             appointment_history["weather_status"] = "unavailable"
@@ -408,18 +554,35 @@ class AppointmentProcessor:
         if result.status != "available" or not result.context:
             return ""
 
-        tip = self._weather_care_tip(appointment_history.get("project", ""))
-        return f"温馨提示：{result.context}{tip}\n"
+        tip = self._weather_care_tip(appointment_history.get("project", ""), result)
+        return f"{result.context}{tip}\n"
 
     @staticmethod
-    def _weather_care_tip(project: str) -> str:
+    def _weather_care_tip(project: str, result: WeatherContextResult) -> str:
+        rain_codes = set(range(51, 68)) | set(range(80, 83)) | {95, 96, 99}
+        rain_risk = bool(
+            (result.precipitation_probability or 0) >= 30
+            or (result.precipitation or 0) > 0
+            or result.weather_code in rain_codes
+        )
         if any(term in project for term in ("染发", "烫发")):
-            return "染发或烫发后建议避免淋雨，出行请备好防雨用品。"
-        if "造型" in project:
-            return "如遇降雨请注意保护刚做好的发型。"
+            if rain_risk:
+                return "染发或烫发后建议避免淋雨，出行可携带雨具，注意保护刚完成的染烫效果。"
+            return "请按门店建议做好染烫后护理，注意保护刚完成的染烫效果。"
+        if any(term in project for term in ("造型", "盘发")):
+            if rain_risk or (result.humidity or 0) >= 75:
+                return "如有降雨或湿度较大，请注意保护刚完成的发型。"
+            return "请预留出行时间，避免挤压刚完成的发型。"
         if "头皮" in project:
-            return "户外高温时注意头皮防晒和补水。"
-        return "请根据实时天气安排到店出行。"
+            tips = []
+            if (result.temperature or 0) >= 30:
+                tips.append("高温时注意头皮防晒")
+            if rain_risk:
+                tips.append("降雨时保持头皮清洁干燥")
+            return "；".join(tips) + "。" if tips else "请按预约时间安排到店。"
+        if rain_risk:
+            return "出行可携带雨具，并预留充足到店时间。"
+        return "请按预约时间安排到店。"
 
     @staticmethod
     def _extract_agent_output(result: Any) -> str:

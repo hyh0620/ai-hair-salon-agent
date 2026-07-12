@@ -18,3 +18,6 @@ def test_health_contract_and_trace_header(monkeypatch, tmp_path):
     assert body["mcp_rag"] == "unavailable"
     assert body["rag_collection"] == "unavailable"
     assert body["llm"] in {"configured", "not_configured"}
+    assert body["weather"] in {"configured", "disabled"}
+    assert body["weather_provider"] == "open_meteo"
+    assert body["weather_location"] == "上海"

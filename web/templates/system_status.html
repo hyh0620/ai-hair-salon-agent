@@ -73,6 +73,12 @@
                 <h2>LLM</h2>
                 <div class="value {{ status.llm }}">{{ status.llm }}</div>
             </article>
+            <article class="card">
+                <h2>天气服务</h2>
+                <div class="value {{ status.weather }}">{{ status.weather }}</div>
+                <p>{{ status.weather_provider }} / {{ status.weather_location }}</p>
+                <small>预约成功后的可选非阻塞提醒</small>
+            </article>
         </section>
 
         <nav class="links" aria-label="系统入口">

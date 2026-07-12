@@ -29,12 +29,16 @@ def build_health_status(request: Request) -> Dict[str, Any]:
     gateway = getattr(request.app.state, "rag_gateway", None) or get_mcp_knowledge_gateway()
     database_status = _database_status()
     mcp_status = "healthy" if gateway.enabled and gateway.is_connected else "unavailable"
+    weather_status, weather_provider, weather_location = _weather_status()
     return {
         "app": "healthy",
         "database": database_status,
         "mcp_rag": mcp_status,
         "rag_collection": gateway.collection if mcp_status == "healthy" else "unavailable",
         "llm": "configured" if _llm_configured() else "not_configured",
+        "weather": weather_status,
+        "weather_provider": weather_provider,
+        "weather_location": weather_location,
     }
 
 
@@ -65,6 +69,14 @@ def _llm_configured() -> bool:
     else:
         keys = ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL")
     return all(_usable_env(key) for key in keys)
+
+
+def _weather_status() -> tuple[str, str, str]:
+    from agents.appointment.appointment_processor import WeatherTool
+
+    tool = WeatherTool()
+    status = "configured" if tool.is_configured else "disabled"
+    return status, tool.provider, tool.location_name
 
 
 def _usable_env(key: str) -> bool:
