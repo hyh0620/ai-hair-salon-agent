@@ -21,6 +21,15 @@ from services.service_catalog import normalize_service
 
 logger = logging.getLogger(__name__)
 
+POSITIVE_CONFIRMATIONS = {
+    "确认", "好的", "好", "可以", "是", "是的", "没问题", "同意",
+    "确定", "yes", "ok", "行", "就他", "就这个", "预约他",
+}
+NEGATIVE_CONFIRMATIONS = {
+    "取消", "不用了", "不确认", "不", "不要", "不行", "不同意",
+    "换", "换一个", "换其他发型师", "no",
+}
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -374,12 +383,13 @@ class AppointmentProcessor:
 
     @staticmethod
     def _is_explicit_confirmation(data: Dict[str, Any]) -> bool:
-        response = str(data.get("confirmation") or "").strip().lower()
-        allowed = {
-            "是", "好", "可以", "同意", "确定", "行", "yes", "ok",
-            "不", "不要", "不行", "不同意", "换", "换一个", "no",
-        }
-        return response in allowed
+        return AppointmentProcessor.is_explicit_confirmation_text(data.get("confirmation"))
+
+    @staticmethod
+    def is_explicit_confirmation_text(value: Any) -> bool:
+        response = str(value or "").strip().lower()
+        response = response.rstrip("，。！？,.!?")
+        return response in POSITIVE_CONFIRMATIONS | NEGATIVE_CONFIRMATIONS
 
     @staticmethod
     def clear_pending_recommendation(appointment_history: Dict[str, Any]) -> None:
@@ -394,14 +404,11 @@ class AppointmentProcessor:
 
     def _handle_recommendation_response(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
         """处理用户对推荐发型师的回应"""
-        user_response = str(data.get('confirmation') or '').strip().lower()
+        user_response = str(data.get('confirmation') or '').strip().lower().rstrip("，。！？,.!?")
         
         # 判断用户是否同意推荐
-        positive_responses = {'是', '好', '可以', '同意', '确定', 'yes', 'ok', '行'}
-        negative_responses = {'不', '不要', '不行', '不同意', '换', '换一个', 'no'}
-        
-        is_positive = user_response in positive_responses
-        is_negative = user_response in negative_responses
+        is_positive = user_response in POSITIVE_CONFIRMATIONS
+        is_negative = user_response in NEGATIVE_CONFIRMATIONS
         
         if is_positive and not is_negative:
             # 用户同意推荐，更新发型师信息

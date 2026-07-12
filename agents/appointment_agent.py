@@ -90,14 +90,21 @@ class AppointmentAgent:
         if user_input is None:
             user_input = input("用户：")
         
-        # 1. 解析用户输入（内部 JSON，不向用户流式输出，避免英文字段名暴露在聊天界面）
-        ai_content = ""
-        for token in self.input_parser.parse_stream(user_input, self.chat_history):
-            ai_content += token
-
         try:
-            # 2. 解析AI返回的数据
-            data = self.input_parser.parse_data(ai_content)
+            # Pending confirmation is deterministic and should not depend on LLM slot backfilling.
+            if (
+                self.appointment_history.get("awaiting_confirmation")
+                and self.appointment_processor.is_explicit_confirmation_text(user_input)
+            ):
+                data = {"confirmation": user_input, "unrelated": False}
+            else:
+                # 1. 解析用户输入（内部 JSON，不向用户流式输出，避免英文字段名暴露在聊天界面）
+                ai_content = ""
+                for token in self.input_parser.parse_stream(user_input, self.chat_history):
+                    ai_content += token
+                data = self.input_parser.parse_data(ai_content)
+
+            # 2. 将本轮槽位合并到会话状态
             self.finished = self.appointment_processor.update_history_from_data(self.appointment_history, data)
             
             # 3. 处理与预约无关的请求

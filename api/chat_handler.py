@@ -99,9 +99,49 @@ def get_chat_session_registry() -> ChatSessionRegistry:
     return _chat_sessions
 
 
-def route_user_message(user_input: str) -> str:
-    """High-precision backend pre-router; it never mutates Agent state."""
+def _normalized_message(user_input: str) -> str:
     normalized = "".join((user_input or "").lower().split())
+    return re.sub(r"[，。！？,.!?]+$", "", normalized)
+
+
+def has_pending_appointment_confirmation(session: Optional[ChatSession]) -> bool:
+    """Read the AppointmentAgent's actual pending-confirmation state."""
+    if session is None:
+        return False
+    appointment_agent = getattr(session.task_agent, "appointment_agent", None)
+    history = getattr(appointment_agent, "appointment_history", {}) or {}
+    return bool(history.get("awaiting_confirmation"))
+
+
+def has_active_appointment_flow(session: Optional[ChatSession]) -> bool:
+    if session is None:
+        return False
+    state_manager = getattr(session.task_agent, "state_manager", None)
+    if state_manager is None or not hasattr(state_manager, "get_current_state"):
+        return False
+    current_state = state_manager.get_current_state()
+    return getattr(current_state, "value", current_state) == "appointment"
+
+
+def is_confirmation_response(user_input: str) -> bool:
+    normalized = _normalized_message(user_input)
+    return normalized in {
+        "确认", "好的", "好", "可以", "是", "是的", "没问题", "同意",
+        "就他", "就这个", "预约他", "取消", "不用了", "不确认", "换一个",
+        "换其他发型师",
+    }
+
+
+def route_user_message(user_input: str, session: Optional[ChatSession] = None) -> str:
+    """Select a route without mutating Agent state."""
+    pending_confirmation = has_pending_appointment_confirmation(session)
+    if pending_confirmation:
+        if is_confirmation_response(user_input):
+            return "appointment"
+    elif has_active_appointment_flow(session):
+        return "appointment"
+
+    normalized = _normalized_message(user_input)
     appointment_terms = (
         "预约",
         "预订",
@@ -129,14 +169,24 @@ async def ProcessUserInput_stream(
     session = _chat_sessions.get_or_create(session_id)
     try:
         async with session.lock:
+            effective_route = route_user_message(user_input, session)
+            if route != effective_route:
+                logger.info(
+                    "chat_route_overridden session_id=%s requested_route=%s effective_route=%s "
+                    "pending_confirmation=%s",
+                    session.session_id,
+                    route,
+                    effective_route,
+                    has_pending_appointment_confirmation(session),
+                )
             logger.info(
                 "chat_request session_id=%s route=%s state=%s",
                 session.session_id,
-                route or "agent_classification",
+                effective_route or "agent_classification",
                 session.task_agent.state_manager.get_current_state().value,
             )
-            if route in {"appointment", "consultation"}:
-                stream = session.task_agent.route_task_stream(user_input, route)
+            if effective_route in {"appointment", "consultation"}:
+                stream = session.task_agent.route_task_stream(user_input, effective_route)
             else:
                 stream = session.task_agent.classify_task_stream(user_input)
             async for token in stream:

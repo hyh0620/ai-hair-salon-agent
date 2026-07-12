@@ -37,6 +37,7 @@ class ChatResetRequest(BaseModel):
 
 class ChatRouteRequest(BaseModel):
     message: str
+    session_id: str | None = None
 
 @router.get("/", response_class=HTMLResponse, summary="主页")
 async def read_root(request: Request):
@@ -87,7 +88,9 @@ async def chat_endpoint(chat: ChatRequest):
 @router.post("/api/chat/route", include_in_schema=False)
 async def route_chat_message(payload: ChatRouteRequest):
     """Select the page endpoint without executing a task or mutating session state."""
-    return {"route": route_user_message(payload.message)}
+    registry = get_chat_session_registry()
+    session = registry.get_existing(payload.session_id) if payload.session_id else None
+    return {"route": route_user_message(payload.message, session)}
 
 
 @router.post("/api/chat/reset", include_in_schema=False)

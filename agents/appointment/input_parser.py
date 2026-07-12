@@ -33,7 +33,7 @@ class InputParser:
                 f"当前日期是{current_date}，当前北京时间是{current_datetime}。\n"
                 "当前已知信息：{history}\n"
                 "用户输入：{user_input}\n"
-                "特别注意：如果用户输入是对推荐发型师确认问题的回应（如\"是\"、\"好\"、\"可以\"、\"不\"、\"不要\"等简短回复），请优先识别为confirmation，而不要标记为unrelated。\n"
+                "特别注意：如果用户输入是对推荐发型师确认问题的回应（如\"确认\"、\"好的\"、\"可以\"、\"就他\"、\"取消\"、\"换一个\"等简短回复），请优先识别为confirmation，而不要标记为unrelated。\n"
                 "重要：请你只输出纯JSON格式，不要添加任何markdown标记如```json或```，不要添加任何其他文字说明，直接输出JSON：\n"
                 "{{\n"
                 '  "gender": "可选的发型师性别偏好（如男/女/未知）",\n'
@@ -44,14 +44,14 @@ class InputParser:
                 '  "style_preference": "可选风格偏好（如清爽、商务、自然、显白、蓬松、未知）",\n'
                 '  "budget": "可选预算，保留数字和单位，如300元；没有则为未知",\n'
                 '  "stylist_name": "指定发型师姓名（如果用户明确提到发型师名字，如林浩、周晴等，否则为未知）",\n'
-                '  "confirmation": "如果用户在回应发型师推荐的确认问题，提取用户的回复内容（如是/好/可以/不/不要等），否则为未知",\n'
+                '  "confirmation": "如果用户在回应发型师推荐的确认问题，提取用户的回复内容（如确认/好的/可以/就他/取消/换一个等），否则为未知",\n'
                 '  "info_complete": "当start_time、project、duration都不为未知时为true。发型师姓名、性别、预算和风格偏好都不是必填项",\n'
                 '  "unrelated": "如果用户的问题和预约无关（如问天气、聊天等），则为true，否则为false。注意：对推荐发型师的确认回复（是/不等）不应标记为unrelated",\n'
                 '  "missing_info": "如果info_complete为false，请列出缺少的关键信息，如[start_time, project]等"\n'
                 "}}\n"
                 "判断逻辑：\n"
                 "1. 如果用户明确指定了发型师姓名（如\"林浩发型师\"、\"预约周晴\"等），请务必提取stylist_name\n"
-                "2. 如果用户在回应推荐发型师的确认问题（如回复\"是\"、\"好\"、\"可以\"、\"不\"、\"不要\"等），请提取到confirmation字段，并且不要将其标记为unrelated\n"
+                "2. 如果用户在回应推荐发型师的确认问题（如回复\"确认\"、\"好的\"、\"可以\"、\"就他\"、\"取消\"、\"换一个\"等），请提取到confirmation字段，并且不要将其标记为unrelated\n"
                 "3. 必需信息判断：\n"
                 "   - 核心必需信息只有start_time、project、duration\n"
                 "   - stylist_name、gender、budget、preference、style_preference只是可选偏好\n"
