@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="auto" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
-  <title id="title">AI Hair Salon Agent architecture</title>
-  <desc id="desc">Horizontal swimlane diagram showing separate consultation and booking flows. Consultation uses MCP Knowledge Gateway and MCP Knowledge Service for cited retrieval. Booking uses deterministic backend services and SQLite. Optional Weather Context is only triggered after appointment success.</desc>
+  <title id="title">AI Hair Salon Agent 系统架构</title>
+  <desc id="desc">横向泳道图展示彼此独立的咨询与预约链路。咨询链路通过 MCP 知识网关和 MCP 知识服务完成带来源引用的检索；预约链路使用确定性后端与 SQLite；可选天气提醒仅在预约成功后触发。</desc>
   <defs>
     <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
       <path d="M2,2 L10,6 L2,10 Z" fill="#334155"/>
@@ -43,82 +43,82 @@
 
   <rect class="page" x="0" y="0" width="1600" height="900"/>
   <text class="title" x="60" y="60">AI Hair Salon Agent</text>
-  <text class="subtitle" x="60" y="88">Separate deterministic booking from MCP-based consultation retrieval</text>
+  <text class="subtitle" x="60" y="88">确定性预约与 MCP 咨询检索分离</text>
 
   <rect class="lane-consult" x="430" y="145" width="1100" height="300" rx="18"/>
-  <text class="lane-title" x="455" y="183">Consultation Flow / 咨询链路</text>
+  <text class="lane-title" x="455" y="183">咨询链路 / Consultation</text>
 
   <rect class="lane-booking" x="430" y="480" width="1100" height="250" rx="18"/>
-  <text class="lane-title" x="455" y="518">Booking Flow / 预约链路</text>
+  <text class="lane-title" x="455" y="518">预约链路 / Booking</text>
 
   <rect class="panel" x="55" y="145" width="320" height="585" rx="18"/>
-  <text class="lane-title" x="85" y="183">Entry &amp; Routing / 入口与路由</text>
+  <text class="lane-title" x="85" y="183">请求入口与路由</text>
 
   <rect class="entry" x="95" y="215" width="240" height="92" rx="12"/>
-  <text class="node-title" x="130" y="250">User Request</text>
-  <text class="node-cn" x="138" y="276">Web / API</text>
+  <text class="node-title" x="153" y="250">用户请求</text>
+  <text class="node-cn" x="139" y="276">Web / API 客户端</text>
 
   <rect class="entry" x="95" y="345" width="240" height="110" rx="12"/>
   <text class="node-title" x="150" y="380">FastAPI</text>
-  <text class="small" x="133" y="407">routes · Swagger</text>
+  <text class="small" x="137" y="407">路由 · Swagger</text>
   <text class="small" x="127" y="431">trace_id · health</text>
 
   <rect class="entry" x="95" y="500" width="240" height="118" rx="12"/>
-  <text class="node-title" x="119" y="535">Task / Agent Layer</text>
-  <text class="small" x="125" y="562">classification · dialog</text>
-  <text class="small" x="162" y="586">routing only</text>
+  <text class="node-title" x="141" y="535">任务 / Agent 层</text>
+  <text class="small" x="142" y="562">意图分类 · 对话</text>
+  <text class="small" x="169" y="586">仅负责路由</text>
 
   <path class="arrow-blue" d="M215 307 L215 345"/>
   <path class="arrow-blue" d="M215 455 L215 500"/>
 
   <rect class="client" x="485" y="235" width="270" height="125" rx="12"/>
-  <text class="node-title" x="516" y="270">MCP Knowledge Gateway</text>
+  <text class="node-title" x="547" y="270">MCP 知识网关</text>
   <text class="node-cn" x="550" y="296">MCP Client</text>
   <text class="small" x="530" y="322">ClientSession · stdio_client</text>
 
   <rect class="server" x="840" y="215" width="315" height="165" rx="12"/>
-  <text class="node-title" x="870" y="250">MCP Knowledge Service</text>
+  <text class="node-title" x="914" y="250">MCP 知识服务</text>
   <text class="node-cn" x="923" y="276">MCP Server</text>
   <text class="small" x="904" y="304">query_knowledge_hub</text>
   <text class="small" x="884" y="330">Dense Retrieval · BM25 · RRF</text>
-  <text class="small" x="960" y="356">citations</text>
+  <text class="small" x="923" y="356">Citations / 来源引用</text>
 
   <rect class="result" x="1240" y="245" width="245" height="105" rx="12"/>
-  <text class="node-title" x="1275" y="280">Consultation Result</text>
-  <text class="small" x="1308" y="307">with Citations</text>
-  <text class="node-cn" x="1304" y="331">咨询结果（含引用）</text>
+  <text class="node-title" x="1318" y="280">咨询结果</text>
+  <text class="small" x="1290" y="307">Citations / 来源引用</text>
+  <text class="node-cn" x="1292" y="331">Consultation Result</text>
 
   <rect class="fault" x="505" y="378" width="225" height="48" rx="10"/>
-  <text class="tiny" x="535" y="397">MCP unavailable</text>
-  <text class="tiny" x="526" y="415">consultation returns 503</text>
+  <text class="tiny" x="558" y="397">MCP 不可用</text>
+  <text class="tiny" x="548" y="415">咨询返回 HTTP 503</text>
 
   <path class="arrow-blue" d="M335 559 L485 298"/>
   <path class="arrow" d="M755 298 L840 298"/>
   <path class="arrow" d="M1155 298 L1240 298"/>
 
   <rect class="booking" x="485" y="560" width="290" height="132" rx="12"/>
-  <text class="node-title" x="522" y="595">Deterministic Booking</text>
-  <text class="small" x="548" y="622">service catalog</text>
-  <text class="small" x="526" y="648">price · duration</text>
-  <text class="small" x="520" y="674">schedule · conflicts</text>
+  <text class="node-title" x="548" y="595">确定性预约服务</text>
+  <text class="small" x="553" y="622">SERVICE_CATALOG</text>
+  <text class="small" x="575" y="648">价格 · 时长</text>
+  <text class="small" x="560" y="674">排班 · 冲突校验</text>
 
   <rect class="data" x="855" y="560" width="275" height="132" rx="12"/>
-  <text class="node-title" x="888" y="595">Business Database</text>
+  <text class="node-title" x="941" y="595">业务数据库</text>
   <text class="small" x="943" y="622">SQLite</text>
-  <text class="small" x="918" y="648">appointments</text>
+  <text class="small" x="915" y="648">appointments / 预约</text>
   <text class="small" x="898" y="674">stylists · schedules</text>
 
   <rect class="result" x="1240" y="575" width="245" height="102" rx="12"/>
-  <text class="node-title" x="1278" y="610">Appointment Success</text>
-  <text class="node-cn" x="1310" y="638">预约成功</text>
+  <text class="node-title" x="1320" y="610">预约成功</text>
+  <text class="node-cn" x="1298" y="638">Appointment Success</text>
 
   <rect class="weather" x="1220" y="755" width="285" height="90" rx="12"/>
-  <text class="node-title" x="1260" y="786">Optional Weather Context</text>
-  <text class="small" x="1268" y="811">external weather API</text>
-  <text class="small" x="1286" y="833">post-booking only</text>
+  <text class="node-title" x="1286" y="786">可选天气提醒</text>
+  <text class="small" x="1282" y="811">外部 Weather API</text>
+  <text class="small" x="1276" y="833">仅预约成功后执行</text>
 
-  <text class="tiny" x="1035" y="800">not MCP · not RAG</text>
-  <text class="tiny" x="995" y="820">failure does not affect booking</text>
+  <text class="tiny" x="1040" y="800">非 MCP · 非 RAG</text>
+  <text class="tiny" x="1012" y="820">失败不影响预约结果</text>
 
   <path class="arrow-green" d="M335 559 L485 626"/>
   <path class="arrow-green" d="M775 626 L855 626"/>
@@ -126,6 +126,6 @@
   <path class="arrow-weather" d="M1363 677 L1363 755"/>
 
   <rect class="panel" x="60" y="785" width="910" height="72" rx="14"/>
-  <text class="small" x="88" y="813">Deterministic booking decides price, duration, availability and conflicts.</text>
-  <text class="small" x="88" y="838">价格、时长、排班、预约成功和冲突由确定性后端决定；MCP/RAG 只用于咨询类知识检索。</text>
+  <text class="small" x="88" y="813">确定性后端决定价格、时长、发型师可用性和预约冲突。</text>
+  <text class="small" x="88" y="838">MCP/RAG 只用于咨询类知识检索；天气提醒仅为非阻塞后处理。</text>
 </svg>

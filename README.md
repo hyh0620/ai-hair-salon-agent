@@ -1,92 +1,107 @@
 # AI Hair Salon Agent
 
-AI hair salon appointment and consultation system that separates deterministic booking logic from MCP-based knowledge retrieval.
+## 智能预约与服务咨询系统
 
-面向理发店预约与咨询场景，将价格、时长、排班和冲突校验保留在确定性后端，将护理、政策和门店知识交给独立 MCP RAG 服务。
+这是一个基于 FastAPI、LangChain 1.x、MCP、RAG、SQLite 的理发店 AI 应用。系统将 Booking 与 Consultation 拆成两条独立链路：LLM 负责意图识别（Intent Classification）、信息提取、槽位收集（Slot Filling）和自然语言生成；价格、服务时长、营业时间、发型师可用性、冲突校验与最终预约结果由确定性后端（Deterministic Backend）处理。
 
-## Overview / 项目概述
+独立的 MCP Knowledge Service 只提供护理、政策和门店知识检索，不参与预约裁决。该边界便于单独测试业务规则，也能把 MCP / RAG 故障限制在咨询链路。
 
-AI Hair Salon Agent is a FastAPI application for salon appointment booking and consultation. It uses LangChain 1.x for LLM-facing flows, SQLite for structured business data, and MCP Knowledge Service for cited knowledge retrieval.
+## 项目简介
 
-项目重点不是让 LLM 决定交易结果，而是把大模型能力限制在意图识别、信息抽取、追问和自然语言回复中。预约是否成功、价格是多少、服务多久、发型师是否可用，均由后端确定性规则处理。
+项目覆盖理发店的预约创建与知识咨询：预约请求由 Agent 完成理解和路由，再交给 `SERVICE_CATALOG`、`AppointmentService` 与 SQLite 执行确定性校验；咨询请求通过 `MCPKnowledgeGateway` 调用外部 MCP Knowledge Service，使用混合检索（Hybrid Retrieval）返回来源引用（Citations）。
 
-## Core Capabilities / 核心能力
+项目重点是明确生成式能力与交易规则的边界，而不是让模型直接决定业务结果。
 
-| Capability | English | 中文说明 |
+## 为什么拆分 Booking 与 Consultation
+
+| 链路 | 数据来源与处理方式 | 错误边界 |
 | --- | --- | --- |
-| Deterministic Booking | Service catalog, price, duration, business-hour checks, stylist schedules, and conflict validation are handled by backend services and SQLite. | 预约交易链路由确定性后端负责，避免 LLM 改写价格、时长、排班或冲突结果。 |
-| MCP Knowledge Retrieval | Consultation requests use an official MCP Python client to call MCP Knowledge Service. | 咨询类问题通过 MCP Client 调用独立知识服务，业务系统不内置第二套 RAG。 |
-| Hybrid Retrieval | MCP Knowledge Service returns Dense Retrieval + BM25 + RRF results with citations. | 护理、政策、门店说明等非结构化知识由混合检索和来源引用支撑。 |
-| Evaluation and Failure Boundaries | 28-case evaluation, retrieval metrics, health checks, trace_id, and MCP runtime failure isolation are included. | 评估结果区分功能契约和检索质量，并验证 MCP 断开时咨询返回 503、预约仍可用。 |
-| Optional Weather Context Tool | A separate external weather API can append a post-booking travel reminder when configured. | 天气工具只在预约保存成功后补充出行提醒，不属于 MCP、RAG 或预约核心逻辑。 |
+| Booking | `SERVICE_CATALOG`、排班数据、营业时间和 SQLite 预约记录；结果由确定性规则计算。 | 价格、时长、可用性和冲突必须可复现，不能由 LLM 或 RAG 猜测。 |
+| Consultation | MCP Knowledge Service 中的护理、门店说明、预约政策和会员规则；适合检索后组织自然语言回答。 | MCP 不可用时咨询返回明确错误，但不阻断 Booking。 |
 
-## Architecture / 系统架构
+两类任务的数据来源、错误容忍度和验收方式不同。拆分后可以分别验证 API 契约、预约规则和检索质量，并防止生成模型越过最终业务裁决边界。
 
-![Architecture](./architecture.svg)
+## 核心能力
 
-- Consultation Flow: MCP Knowledge Gateway calls MCP Knowledge Service (MCP Server) and returns Consultation Result with Citations.
-- Booking Flow: deterministic services and SQLite decide price, duration, schedules, conflicts, and Appointment Success.
-- Optional Weather: Optional Weather Context only appends a non-blocking reminder after Appointment Success; it is not MCP or RAG.
+| 能力 | 实现与边界 |
+| --- | --- |
+| Agent 任务路由 | 识别预约、咨询和其他请求；负责对话、信息提取和缺失槽位追问。 |
+| 确定性预约 | `SERVICE_CATALOG` 提供标准价格与标准时长；`AppointmentService` 与 SQLite 处理营业时间、发型师排班、可用性、保存和冲突校验。 |
+| MCP 知识检索 | `MCPKnowledgeGateway` 是主项目中的 MCP Client 封装，使用官方 MCP Python SDK 连接独立 MCP Knowledge Service。 |
+| 混合检索与引用 | 外部知识服务组合向量检索（Dense Retrieval）、BM25 和倒数排名融合（Reciprocal Rank Fusion, RRF），返回 Citations。 |
+| 故障隔离 | MCP 运行时不可用时，Consultation 返回 HTTP 503；Booking 继续使用本地确定性后端。 |
+| 可选天气提醒 | Optional Weather Context Tool 仅在聊天预约保存成功后调用外部天气 API；失败时省略提醒，不改变预约结果。 |
 
-中文说明：咨询链路通过 MCP Knowledge Gateway 调用 MCP Knowledge Service 并返回引用；预约链路由确定性服务和 SQLite 决定业务结果；天气只在预约成功后可选追加提醒。
+## 系统架构
 
-## System Boundaries / 系统职责边界
+![系统架构](./architecture.svg)
 
-| Area | Responsibilities | 中文边界 |
-| --- | --- | --- |
-| LLM | Intent classification, slot extraction, missing-information follow-up, and natural-language generation from retrieved context. | LLM 负责理解和表达，不负责最终业务裁决。 |
-| Deterministic backend | Normalize service names, compute price and duration from `services/service_catalog.py`, validate schedules, create appointments, and block conflicts. | 价格、时长、排班、创建预约和冲突校验必须由后端规则决定。 |
-| MCP RAG | Retrieve care guidance, store information, booking policy, membership rules, and citations from the configured collection. | 知识库用于咨询回答，不决定预约是否成功。 |
-| Optional Weather Context Tool | When explicitly configured, append a short weather reminder after a conversational booking has already been saved. | 天气失败时只省略提醒，不能影响预约成功、价格、时长或冲突结果。 |
+- Consultation：`MCPKnowledgeGateway` 调用独立 MCP Knowledge Service，返回带 Citations 的咨询结果。
+- Booking：`SERVICE_CATALOG`、`AppointmentService` 和 SQLite 决定价格、时长、排班、冲突及预约结果。
+- Weather：只在预约成功后作为非阻塞后处理执行，不属于 MCP 或 RAG。
 
-## Technology Stack / 技术栈
+## 两条核心链路
 
-- Python 3.11
-- FastAPI, Uvicorn
-- LangChain 1.x
-- Qwen or another OpenAI-compatible chat provider
-- SQLAlchemy and SQLite
-- Official MCP Python SDK
-- MCP Knowledge Service with ChromaDB, BM25, RRF, and citations
+### 确定性预约链路
+
+```text
+User Request
+  -> Task / Agent Layer
+  -> SERVICE_CATALOG（标准价格、标准时长）
+  -> AppointmentService（营业时间、排班、可用性、冲突校验）
+  -> SQLite（预约与发型师排班数据）
+  -> Appointment Success / HTTP 4xx
+  -> Optional Weather Context Tool（仅成功后，可选且非阻塞）
+```
+
+Agent / LLM 可以提取 `project`、`start_time`、`duration` 和可选偏好，但不能决定最终价格、最终时长、发型师是否可用、是否冲突或预约是否成功。
+
+### MCP / RAG 咨询链路
+
+```text
+POST /api/consultation/query
+  -> MCPKnowledgeGateway.query_knowledge
+  -> ClientSession.call_tool("query_knowledge_hub")
+  -> Dense Retrieval + BM25 + RRF
+  -> Citations
+  -> LLM 组织回答，或在未配置 LLM 时返回检索摘要
+```
+
+价格和服务时长问题仍以 `services/service_catalog.py` 为最终事实来源。RAG 不决定价格、时长、营业时间、排班、冲突或预约结果。
+
+## 技术栈
+
+- Python 3.11、FastAPI、Uvicorn
+- LangChain 1.x、OpenAI-compatible Chat Model（可配置 Qwen）
+- Official MCP Python SDK：`ClientSession`、`stdio_client`
+- SQLAlchemy、SQLite
+- MCP Knowledge Service：ChromaDB、BM25、RRF、Citations
 - pytest
 
-## Project Structure / 项目结构
+## 项目结构
 
 ```text
 ai-hair-salon-agent/
-├── api/
-├── agents/
-├── config/
-├── db/
-├── services/
-├── web/
-├── tests/
-├── eval/
-├── docs/
-├── .github/skills/
-├── AGENTS.md
+├── api/                    # FastAPI 路由与响应模型
+├── agents/                 # 分类、预约和咨询 Agent
+├── config/                 # 模型、数据库、时间与 trace 配置
+├── db/                     # SQLAlchemy 模型与 Repository
+├── services/               # 预约、服务目录、发型师与 MCP Gateway
+├── web/                    # 页面模板与静态资源
+├── tests/                  # 单元测试与回归测试
+├── eval/                   # Golden Dataset 与真实评估脚本
+├── docs/                   # 架构、评估、演示和集成文档
+├── architecture.svg
 ├── .env.example
-├── LICENSE
-├── README.md
 ├── requirements.txt
 └── app.py
 ```
 
-## Related Repository / 关联项目
+## 快速开始
 
-MCP Knowledge Service: <https://github.com/hyh0620/mcp-knowledge-service>
+### Booking-only 本地启动
 
-The AI Hair Salon Agent uses MCP Knowledge Service as an external knowledge retrieval process.
-
-主项目通过 MCP Client 调用该独立知识服务，用于咨询类知识检索。
-
-## Quick Start / 快速启动
-
-### Booking-only local start / 仅预约功能本地启动
-
-The default `.env.example` keeps MCP disabled and API keys empty, so the local app can start safely for booking APIs and deterministic service tests.
-
-默认 `.env.example` 关闭 MCP 且不包含真实 Key，因此复制后可以先安全启动 booking-only 版本。
+默认 `.env.example` 关闭 MCP 且不包含真实 API Key，可以先运行预约 API 和确定性业务逻辑。
 
 ```bash
 python3.11 -m venv .venv
@@ -96,37 +111,35 @@ cp .env.example .env
 python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Useful endpoints:
+常用入口：
 
-- Home: `http://127.0.0.1:8000/`
-- Swagger: `http://127.0.0.1:8000/docs`
-- Health: `http://127.0.0.1:8000/health`
-- Stylists: `http://127.0.0.1:8000/stylists`
-- Stylist schedule: `http://127.0.0.1:8000/stylist-schedule`
-- Knowledge status: `http://127.0.0.1:8000/knowledge`
+- 首页：`http://127.0.0.1:8000/`
+- Swagger：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/health`
+- 发型师：`http://127.0.0.1:8000/stylists`
+- 发型师排班：`http://127.0.0.1:8000/stylist-schedule`
+- 知识服务状态：`http://127.0.0.1:8000/knowledge`
 
-### Full consultation demo / 完整咨询演示
+### 完整 Consultation 演示
 
-Prepare MCP Knowledge Service first:
+先准备独立的 [MCP Knowledge Service](https://github.com/hyh0620/mcp-knowledge-service)：
 
 ```bash
 cd <PATH_TO_MCP_KNOWLEDGE_SERVICE>
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
+cp .env.example .env
 cp config/settings.example.yaml config/settings.yaml
-```
-
-Configure local provider environment variables in a private `.env` file or shell environment. Then ingest the salon example:
-
-```bash
 python scripts/ingest.py \
   --path examples/salon/generated_pdfs \
   --collection salon_knowledge \
   --force
 ```
 
-Set the business app `.env`:
+执行真实 Embedding 前，需要在知识服务的本地 `.env` 中配置 Provider Key，且不要提交该文件。
+
+在主项目 `.env` 中启用集成：
 
 ```env
 RAG_MCP_ENABLED=true
@@ -137,148 +150,102 @@ RAG_MCP_COLLECTION=salon_knowledge
 RAG_MCP_QUERY_TOP_K=4
 ```
 
-After updating `.env`, restart FastAPI so its lifespan startup creates a new MCP gateway with MCP enabled.
+修改 `.env` 后需要重启 FastAPI。启用 MCP 后，FastAPI lifespan 会按配置通过 stdio 拉起 MCP Knowledge Service 子进程，执行 `initialize` 和 `tools/list`，并复用 `ClientSession`；应用关闭时清理子进程。
 
-修改 `.env` 后，需要重启 FastAPI，使 lifespan startup 按启用后的 MCP 配置重新创建 MCP gateway。
+`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是交互式 CLI。正常业务运行由 MCP Client 自动拉起；单独验证时需要 MCP Client 或验证脚本发送 `initialize`、`tools/list` 和 tool call。
 
-When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process through stdio using the configured Python interpreter, module, and working directory.
+## 配置说明
 
-启用 MCP 后，FastAPI 会根据配置中的 Python 解释器、模块路径和工作目录，通过 stdio 启动 MCP Knowledge Service 子进程。
+| 配置 | 作用 | 默认边界 |
+| --- | --- | --- |
+| `DATABASE_URL` | SQLite 连接 | 本地业务数据，不提交运行时数据库。 |
+| `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` | Chat Model | 未配置时，确定性 Booking 不受影响；Consultation 可返回检索摘要。 |
+| `RAG_MCP_ENABLED` | 是否启用 MCP Knowledge Service | 默认 `false`。只有路径和 Provider 准备完成后再启用。 |
+| `RAG_MCP_SERVER_PYTHON`、`RAG_MCP_SERVER_CWD` | MCP 子进程解释器与工作目录 | 必须指向有效的独立知识服务 checkout。 |
+| `RAG_MCP_COLLECTION` | 咨询使用的 collection | 示例使用 `salon_knowledge`。 |
+| `WEATHER_ENABLED`、`OPENWEATHER_API_KEY`、`WEATHER_LOCATION` | 可选天气上下文 | 默认关闭；缺配置或请求失败时不影响预约。 |
+| `CORS_ALLOWED_ORIGINS` | 显式跨域 allowlist | 默认空值，仅同源；不使用 wildcard。 |
 
-`python -m src.mcp_server.server` starts an stdio JSON-RPC server, not an interactive CLI.
+真实 Key 只放在本地 `.env`，不要提交到 Git。
 
-For normal application use, let the MCP client launch it automatically.
+## API 与使用示例
 
-For standalone verification, start it through an MCP client or verification script that sends `initialize`, `tools/list`, and tool calls.
+创建预约：
 
-`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是可直接交互查询的 CLI。
-
-正常业务运行时，应由 MCP Client 自动拉起该进程。
-
-单独验证时，应通过 MCP Client 或验证脚本发送 `initialize`、`tools/list` 和 tool call，而不是只在终端直接运行该命令。
-
-### Optional Weather Context Tool / 可选天气上下文工具
-
-```env
-WEATHER_ENABLED=false
-OPENWEATHER_API_KEY=
-WEATHER_LOCATION=
-WEATHER_TIMEOUT_SECONDS=3
+```bash
+curl -X POST http://127.0.0.1:8000/api/appointment/create \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": "demo_user",
+    "project": "男士短发",
+    "start_time": "2026-07-15 14:00",
+    "duration": "45分钟",
+    "style_preference": "渐变推剪"
+  }'
 ```
 
-Leave weather disabled for normal tests and demos unless you intentionally want to show an external context API. Do not commit a real weather API key.
+咨询知识问题：
 
-### CORS / 跨域配置
-
-```env
-CORS_ALLOWED_ORIGINS=
+```bash
+curl -X POST http://127.0.0.1:8000/api/consultation/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"染发后如何减少掉色？"}'
 ```
 
-Cross-origin access is disabled by default. Configure explicit origins through `CORS_ALLOWED_ORIGINS` only when a separate frontend origin is needed.
+Consultation 响应包含 `answer`、`sources`、`retrieval_mode`、`collection`、`rag_status`、`llm_status`、`source_count` 和 `trace_id`。
 
-默认同源运行不启用跨域；只有前端与 API 使用不同 origin 时，才通过 `CORS_ALLOWED_ORIGINS` 显式配置允许来源。
+## 测试与历史评估结果
 
-## Tests / 测试
+默认 pytest 使用 mock 和本地确定性服务，不调用真实 Qwen、OpenWeather 或外部 MCP 服务。
 
 ```bash
 python3.11 -m pip check
 python3.11 -m pytest
 ```
 
-Default pytest uses mocks and deterministic local services. It does not call a real Qwen API or require real API keys. Weather tests also use mocks and do not call the real OpenWeather service.
+已保存的历史评估结果如下；本次 README 修改未重新运行评估：
 
-## Evaluation / 评估结果
-
-### Run Evaluation / 运行评估
-
-Start three app instances for the full evaluation:
-
-```bash
-DATABASE_URL=sqlite:////tmp/salon_eval_8000.db \
-  python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000
-
-RAG_MCP_ENABLED=false DATABASE_URL=sqlite:////tmp/salon_eval_8002.db \
-  python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8002
-
-env -u LLM_API_KEY -u LLM_BASE_URL -u LLM_MODEL \
-DATABASE_URL=sqlite:////tmp/salon_eval_8003.db \
-  python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8003
-```
-
-Then run:
-
-```bash
-NO_PROXY=127.0.0.1,localhost python3.11 eval/run_evaluation.py \
-  --base-url http://127.0.0.1:8000 \
-  --mcp-unavailable-base-url http://127.0.0.1:8002 \
-  --llm-unconfigured-base-url http://127.0.0.1:8003 \
-  --timeout 120
-```
-
-The public repository does not include raw local evaluation reports.
-
-### Verified Evaluation Snapshot / 已验证评估快照
-
-| Metric | Result |
-| --- | --- |
+| 历史指标 | 结果 |
+| --- | ---: |
 | Functional Contract | 28 / 28 |
-| RAG cases evaluated | 11 |
+| Booking contract | 9 / 9 |
+| Booking success | 3 / 3 |
+| Conflict block | 2 / 2 |
+| Invalid booking rejection | 4 / 4 |
+| RAG cases | 11 |
 | Hit@1 | 10 / 11 |
 | Hit@3 | 11 / 11 |
 | MRR | 0.9545 |
 | Citation expected-source match | 11 / 11 |
-| MCP runtime failure | Consultation returns 503 while booking remains available |
 
-## MCP Failure Boundary Demo / MCP 故障边界演示
+历史故障用例记录显示：MCP 子进程运行中断开后，Consultation 返回 HTTP 503，正常 Booking 仍可创建，同一发型师同一时段的冲突仍返回 HTTP 409。指标定义、样本分母和复现方式见 [检索与业务评估](docs/EVALUATION.md)。
 
-Start one normal app with MCP enabled, then run:
+## 故障边界
 
-```bash
-NO_PROXY=127.0.0.1,localhost python3.11 eval/mcp_runtime_failure_e2e.py \
-  --base-url http://127.0.0.1:8000 \
-  --timeout 60
-```
+- MCP 启动失败、连接断开或 tool call 失败：Consultation 返回 HTTP 503 和 `mcp_rag_unavailable`，不静默回退到旧本地 FAISS。
+- LLM 未配置：不影响确定性 Booking；MCP 可用时 Consultation 返回整理后的检索摘要和 Citations。
+- Optional Weather Context Tool 缺少配置、超时或 HTTP 错误：只省略天气提醒，不撤销已保存预约。
+- 非法时间、营业时间外或预约冲突：由后端返回明确的 HTTP 4xx，不交给 LLM 修正业务结果。
 
-Expected behavior:
+## 项目边界与已知限制
 
-- Consultation works before the MCP child process is terminated.
-- The script terminates the real MCP child process.
-- Consultation returns HTTP 503 with `code=mcp_rag_unavailable`.
-- Booking creation still returns 200.
-- Duplicate stylist/time booking still returns 409.
+- 当前语料是小型受控数据集：7 份文档、24 个 chunks，用于链路验证和回归评估，不代表生产规模或通用 benchmark。
+- 项目不声明已经生产部署，也不声明真实用户规模、SLA、高并发或自动恢复能力。
+- 公开范围不包含 Rerank、Ragas、Graph RAG、Memory、multimodal、Docker/K8s、认证授权或 production multi-tenancy。
+- MCP Knowledge Service 是可选的独立咨询依赖，不参与 Booking；Weather Tool 也不是 MCP 或 RAG。
+- 历史指标来自仓库保存的评估文档，不能解释为本次现场测试或生产准确率。
 
-## Known Limits / 当前限制
+## 相关仓库
 
-| Limit | 中文说明 |
-| --- | --- |
-| Small controlled corpus: 7 documents, 24 chunks. | 当前知识库规模较小，适合验证链路和评估方法，不代表生产规模。 |
-| No production deployment claim. | README 不声明已经生产上线或支持真实用户规模。 |
-| No Rerank, Ragas, Graph RAG, Memory, multimodal, Docker/K8s claim. | 未验证能力不写入公开能力范围。 |
-| Weather tool is optional and not part of MCP capability. | 天气工具只是预约成功后的可选上下文提醒，不用于证明 MCP 能力。 |
+- [MCP Knowledge Service](https://github.com/hyh0620/mcp-knowledge-service)：通过 MCP Client 接入的独立知识检索服务。
 
-## Documentation / 文档
+## 相关文档
 
-- [Architecture / 系统架构](docs/ARCHITECTURE.md)
-- [Evaluation / 评估](docs/EVALUATION.md)
-- [Demo Guide / 演示指南](docs/DEMO_GUIDE.md)
-- [RAG Service Integration / RAG 服务集成](docs/RAG_SERVICE_INTEGRATION.md)
+- [系统架构（Architecture）](docs/ARCHITECTURE.md)
+- [检索与业务评估（Evaluation）](docs/EVALUATION.md)
+- [演示说明（Demo Guide）](docs/DEMO_GUIDE.md)
+- [MCP RAG 集成说明（Integration）](docs/RAG_SERVICE_INTEGRATION.md)
 
-## Skills / 项目工作流
+## 安全说明
 
-Operational skills are stored in `.github/skills/`:
-
-- `setup-environment`
-- `run-demo`
-- `evaluate-system`
-- `update-salon-knowledge`
-- `verify-project`
-
-They describe repeatable project workflows and do not contain credentials.
-
-## Security / 安全说明
-
-Do not commit `.env`, API keys, local runtime databases, ChromaDB files, BM25 indexes, logs, trace files, or raw local evaluation dumps.
-
-Cross-origin access is disabled by default. Configure explicit origins through `CORS_ALLOWED_ORIGINS` only when a separate frontend origin is needed.
-
-默认同源运行不启用跨域；只有前端与 API 使用不同 origin 时，才通过 `CORS_ALLOWED_ORIGINS` 显式配置允许来源。
+不要提交 `.env`、API Key、本地 SQLite、ChromaDB、BM25 index、日志、trace 或原始评估报告。跨域默认关闭；只有前端与 API 使用不同 origin 时，才通过 `CORS_ALLOWED_ORIGINS` 配置显式 allowlist。
