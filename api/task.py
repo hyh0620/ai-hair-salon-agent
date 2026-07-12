@@ -13,7 +13,12 @@ from .core.response_models import (
 router = APIRouter(prefix="/api/task", tags=["任务分类"])
 
 
-@router.post("/classify", response_model=DataResponse)
+@router.post(
+    "/classify",
+    response_model=DataResponse,
+    summary="识别并路由用户任务",
+    description="识别预约或咨询意图并调用对应 Agent；最终预约仍由结构化服务目录、排班和 SQLite 规则决定。",
+)
 async def classify_task(request: TaskClassificationRequest):
     """分类任务"""
     try:

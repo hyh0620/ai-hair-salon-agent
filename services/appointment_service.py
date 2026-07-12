@@ -2,6 +2,7 @@
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +11,14 @@ from db.db_router import DatabaseRouter
 from services.service_catalog import normalize_service, parse_duration_minutes
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AppointmentSaveResult:
+    success: bool
+    appointment_id: Optional[int] = None
+    schedule_id: Optional[int] = None
+    reason: Optional[str] = None
 
 
 class AppointmentService:
@@ -46,18 +55,35 @@ class AppointmentService:
         appointment_history: Dict[str, Any],
         session_id: str,
     ) -> bool:
+        """Compatibility wrapper that preserves the historical bool contract."""
+        return self.save_appointment_detailed(
+            stylist_id,
+            start_time,
+            end_time,
+            appointment_history,
+            session_id,
+        ).success
+
+    def save_appointment_detailed(
+        self,
+        stylist_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        appointment_history: Dict[str, Any],
+        session_id: str,
+    ) -> AppointmentSaveResult:
         try:
             if not self.is_within_business_hours(start_time, end_time):
                 logger.warning("预约时间不在营业时间内: %s 到 %s", start_time, end_time)
-                return False
+                return AppointmentSaveResult(False, reason="outside_business_hours")
 
             stylist_id_int = int(stylist_id)
             if not self.is_stylist_available(stylist_id_int, start_time, end_time):
                 logger.warning("发型师 %s 在 %s 到 %s 已有预约冲突", stylist_id, start_time, end_time)
-                return False
+                return AppointmentSaveResult(False, reason="schedule_conflict")
 
             appointment_id = int(time.time() * 1000)
-            self.stylist_repo.add_schedule(
+            schedule_id = self.stylist_repo.add_schedule(
                 stylist_id=stylist_id_int,
                 start_time=start_time,
                 end_time=end_time,
@@ -71,10 +97,14 @@ class AppointmentService:
                 end_time,
                 appointment_id,
             )
-            return True
+            return AppointmentSaveResult(
+                success=True,
+                appointment_id=appointment_id,
+                schedule_id=schedule_id,
+            )
         except Exception as exc:
             logger.error("保存预约失败: %s", exc)
-            return False
+            return AppointmentSaveResult(False, reason="persistence_error")
 
     def is_within_business_hours(self, start_time: datetime, end_time: datetime) -> bool:
         start_hour, end_hour = time_config.get_business_hours()

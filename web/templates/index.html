@@ -393,6 +393,10 @@
                 <i class="fas fa-calendar-alt"></i>
                 发型师排班
             </button>
+            <button class="nav-btn" onclick="window.location.href='/status'">
+                <i class="fas fa-heartbeat"></i>
+                系统状态
+            </button>
             <button class="nav-btn" id="clear-btn">
                 <i class="fas fa-trash-alt"></i>
                 清空对话
@@ -451,7 +455,24 @@
     const userInput = document.getElementById('user-input');
     const clearBtn = document.getElementById('clear-btn');
     const typingIndicator = document.getElementById('typing-indicator');
+    const sessionStorageKey = 'salon_chat_session_id';
     let lastBotBubble = null;
+    let sessionId = getOrCreateSessionId();
+
+    function createSessionId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return window.crypto.randomUUID();
+        }
+        return `session_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    }
+
+    function getOrCreateSessionId() {
+        const existing = window.localStorage.getItem(sessionStorageKey);
+        if (existing) return existing;
+        const created = createSessionId();
+        window.localStorage.setItem(sessionStorageKey, created);
+        return created;
+    }
 
     function addMessage(text, sender) {
         const msgDiv = document.createElement('div');
@@ -553,11 +574,14 @@
             .replace(/'/g, '&#039;');
     }
 
-    function shouldUseConsultationApi(text) {
-        const consultationTerms = ['注意事项', '营业', '几点', '地址', '护理', '准备', '规则', '会员', '投诉', '售后', '多久', '怎么', '什么', '可以'];
-        const appointmentTerms = ['我要预约', '帮我预约', '安排', '创建预约', '约一个', '约一下'];
-        if (consultationTerms.some(term => text.includes(term))) return true;
-        return !appointmentTerms.some(term => text.includes(term));
+    async function selectMessageRoute(text) {
+        const res = await fetch('/api/chat/route', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text})
+        });
+        if (!res.ok) throw new Error('route selection failed');
+        return await res.json();
     }
 
     function renderConsultationResponse(data) {
@@ -600,11 +624,11 @@
         renderConsultationResponse(data);
     }
 
-    async function callStreamingAgent(text) {
+    async function callStreamingAgent(text, route) {
         const res = await fetch('/chat/stream', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({message: text})
+            body: JSON.stringify({message: text, session_id: sessionId, route})
         });
         hideTypingIndicator();
         const reader = res.body.getReader();
@@ -639,10 +663,11 @@
         lastBotBubble = chatBox.querySelector('.message.bot:last-child .bubble');
         
         try {
-            if (shouldUseConsultationApi(text)) {
+            const routeResult = await selectMessageRoute(text);
+            if (routeResult.route === 'consultation') {
                 await callConsultationApi(text);
             } else {
-                await callStreamingAgent(text);
+                await callStreamingAgent(text, routeResult.route);
             }
         } catch (error) {
             hideTypingIndicator();
@@ -656,17 +681,30 @@
         }
     }
 
-    clearBtn.onclick = function() {
-        // 保留欢迎消息，只清除其他对话
-        const welcomeMessage = chatBox.querySelector('.message.bot').cloneNode(true);
-        chatBox.innerHTML = '';
-        chatBox.appendChild(welcomeMessage);
-        
-        // 重新设置lastBotBubble为null
-        lastBotBubble = null;
-        
-        // 聚焦输入框
-        userInput.focus();
+    clearBtn.onclick = async function() {
+        clearBtn.disabled = true;
+        try {
+            const res = await fetch('/api/chat/reset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionId})
+            });
+            if (!res.ok) throw new Error('session reset failed');
+            const data = await res.json();
+            sessionId = data.session_id;
+            window.localStorage.setItem(sessionStorageKey, sessionId);
+
+            const welcomeMessage = chatBox.querySelector('.message.bot').cloneNode(true);
+            chatBox.innerHTML = '';
+            chatBox.appendChild(welcomeMessage);
+            lastBotBubble = null;
+        } catch (error) {
+            console.error('Reset error:', error);
+            window.alert('清空对话失败，请稍后重试。');
+        } finally {
+            clearBtn.disabled = false;
+            userInput.focus();
+        }
     }
     
     // 添加回车键发送功能

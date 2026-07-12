@@ -1,6 +1,7 @@
 """Build appointment response messages."""
 
 from typing import Any, Dict, List
+from datetime import datetime
 
 
 class MessageBuilder:
@@ -19,7 +20,9 @@ class MessageBuilder:
         project = appointment_history.get("project", "服务")
         duration = appointment_history.get("duration", "")
         price = appointment_history.get("price") or appointment_history.get("standard_price")
-        price_text = f"，参考价格：{price}元" if price else ""
+        appointment_id = appointment_history.get("appointment_id")
+        start_time = self._format_start_time(appointment_history.get("start_time"))
+        price_text = f"，{price}元" if price else ""
 
         if stylist.get("is_recommendation"):
             original = stylist.get("original_stylist", {})
@@ -28,9 +31,20 @@ class MessageBuilder:
             note = ""
 
         return (
-            f"\n机器人：已为您预约发型师：{stylist['name']}。"
-            f"服务项目：{project}，预计时长：{duration}{price_text}。预约成功！{note}\n"
+            f"\n机器人：预约成功！预约编号：{appointment_id}。"
+            f"已为您预约{stylist['name']}，{start_time}，{project}，{duration}{price_text}。{note}\n"
         )
+
+    @staticmethod
+    def _format_start_time(value: Any) -> str:
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            try:
+                parsed = datetime.strptime(str(value), "%Y-%m-%d %H:%M")
+            except (TypeError, ValueError):
+                return str(value or "预约时间待确认")
+        return f"{parsed.year}年{parsed.month}月{parsed.day}日{parsed:%H:%M}"
 
     def create_stylist_recommendation_message(
         self,

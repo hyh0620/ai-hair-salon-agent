@@ -5,10 +5,15 @@
 注意：现在通过Services层访问数据库，符合分层架构
 """
 
+import logging
 from typing import Dict, Any
 from datetime import datetime
 from config.time_config import time_config
 from config.constants import busy_periods_dict
+from services.appointment_service import AppointmentSaveResult
+
+
+logger = logging.getLogger(__name__)
 
 
 class AppointmentDatabase:
@@ -37,23 +42,37 @@ class AppointmentDatabase:
     def save_appointment(self, stylist_id: str, start_time: datetime, 
                         end_time: datetime, appointment_history: Dict[str, Any], 
                         session_id: str) -> bool:
-        """保存预约信息到数据库"""
+        """Compatibility wrapper that preserves the historical bool contract."""
+        return self.save_appointment_detailed(
+            stylist_id,
+            start_time,
+            end_time,
+            appointment_history,
+            session_id,
+        ).success
+
+    def save_appointment_detailed(
+        self,
+        stylist_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        appointment_history: Dict[str, Any],
+        session_id: str,
+    ) -> AppointmentSaveResult:
+        """Persist an appointment and retain its database identifiers."""
         try:
-            # 通过Services层保存预约
-            success = self.appointment_service.save_appointment(
+            result = self.appointment_service.save_appointment_detailed(
                 stylist_id, start_time, end_time, appointment_history, session_id
             )
-            
-            if success:
+            if result.success:
                 # 记录用户行为
                 self._record_user_behavior(start_time, end_time, stylist_id, 
                                          appointment_history, session_id)
-            
-            return success
+            return result
             
         except Exception as e:
-            print(f"保存预约信息到数据库失败：{e}")
-            return False
+            logger.exception("保存预约信息到数据库失败")
+            return AppointmentSaveResult(False, reason=type(e).__name__)
     
     def update_memory_schedule(self, stylist_id: str, start_time: datetime, end_time: datetime):
         """更新内存中的发型师忙碌时间段"""
@@ -92,4 +111,4 @@ class AppointmentDatabase:
             )
             
         except Exception as behavior_error:
-            print(f"记录用户行为失败（但预约仍然成功）：{behavior_error}")
+            logger.warning("记录用户行为失败（预约已成功）: %s", type(behavior_error).__name__)

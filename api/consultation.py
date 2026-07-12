@@ -46,7 +46,12 @@ class ConsultationQueryResponse(BaseModel):
     source_count: int
 
 
-@router.post("/query", response_model=ConsultationQueryResponse, summary="MCP RAG 理发店咨询问答")
+@router.post(
+    "/query",
+    response_model=ConsultationQueryResponse,
+    summary="查询理发店知识",
+    description="通过 MCP Knowledge Service 执行 Dense Retrieval、BM25 与 RRF，并返回回答和 citations；不参与预约价格、时长、排班或冲突裁决。",
+)
 async def query_consultation(request: Request, payload: ConsultationQueryRequest):
     """Query MCP Knowledge Service and answer from retrieved salon knowledge."""
     trace_id = getattr(getattr(request, "state", None), "trace_id", None) or get_trace_id()
@@ -108,7 +113,12 @@ async def query_consultation(request: Request, payload: ConsultationQueryRequest
     )
 
 
-@router.post("/ask", response_model=ConsultationQueryResponse, summary="理发店咨询问答")
+@router.post(
+    "/ask",
+    response_model=ConsultationQueryResponse,
+    summary="理发店咨询问答兼容入口",
+    include_in_schema=False,
+)
 async def ask_consultation(request: Request, payload: ConsultationQueryRequest):
     """Compatibility alias for the formal MCP-backed consultation endpoint."""
     return await query_consultation(request, payload)

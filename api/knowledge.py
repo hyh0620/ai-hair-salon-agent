@@ -7,7 +7,11 @@ from services.mcp_knowledge_gateway import get_mcp_knowledge_gateway
 router = APIRouter(prefix="/api/knowledge", tags=["知识服务状态"])
 
 
-@router.get("/")
+@router.get(
+    "/",
+    summary="获取 MCP 知识服务状态",
+    description="返回主应用持有的 MCP ClientSession、collection 和 tool discovery 状态。",
+)
 async def get_knowledge_status():
     gateway = get_mcp_knowledge_gateway()
     return {
@@ -19,7 +23,7 @@ async def get_knowledge_status():
     }
 
 
-@router.post("/reconnect")
+@router.post("/reconnect", include_in_schema=False)
 async def reconnect_knowledge_gateway():
     gateway = get_mcp_knowledge_gateway()
     await gateway.reconnect()

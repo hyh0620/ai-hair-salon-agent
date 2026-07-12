@@ -92,6 +92,33 @@
             color: #666;
             margin-bottom: 10px;
         }
+
+        .date-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 18px 0 8px;
+        }
+
+        .date-controls a,
+        .date-controls button {
+            border: 1px solid #4facfe;
+            background: white;
+            color: #1677a8;
+            border-radius: 8px;
+            padding: 8px 14px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .date-controls input {
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font: inherit;
+        }
         
         .time-legend {
             display: flex;
@@ -299,9 +326,17 @@
         <div class="content">
             <div class="schedule-info">
                 <h3><i class="fas fa-clock"></i> 营业时间说明</h3>
-                <p>今日日期：{{ current_date }}（北京时间）</p>
+                <p>所选日期：{{ selected_date }}（北京时间）</p>
                 <p>工作时间：10:00 - 21:00 （共11小时）</p>
                 <p>红色区域表示已预约时间段，空白区域为可预约时间</p>
+                <div class="date-controls">
+                    <a href="/stylist-schedule?date={{ previous_date }}">上一天</a>
+                    <a href="/stylist-schedule?date={{ today }}">今天</a>
+                    <input id="schedule-date" type="date" value="{{ selected_date }}" aria-label="选择排班日期">
+                    <button type="button" onclick="openSelectedDate()">查看日期</button>
+                    <a href="/stylist-schedule?date={{ next_date }}">下一天</a>
+                    <a href="/stylist-schedule?date={{ selected_date }}">刷新</a>
+                </div>
             </div>
             
             <div class="time-legend">
@@ -346,7 +381,7 @@
                             {% set total_minutes = (21 - 10) * 60 %}
                             {% set left = ((start_minutes - base_minutes) / total_minutes) * 100 %}
                             {% set width = ((end_minutes - start_minutes) / total_minutes) * 100 %}
-                            <div class="busy-block" style="left:{{ left }}%;width:{{ width }}%;" title="预约时间: {{ period.start }} - {{ period.end }}">
+                            <div class="busy-block" style="left:{{ left }}%;width:{{ width }}%;" title="开始：{{ period.start }}；结束：{{ period.end }}；预约编号：{{ period.appointment_id }}；排班编号：{{ period.schedule_id }}">
                                 <i class="fas fa-scissors"></i>
                                 {{ period.start }}~{{ period.end }}
                             </div>
@@ -371,5 +406,11 @@
             </div>
         </div>
     </div>
+    <script>
+        function openSelectedDate() {
+            const selected = document.getElementById('schedule-date').value;
+            if (selected) window.location.href = `/stylist-schedule?date=${encodeURIComponent(selected)}`;
+        }
+    </script>
 </body>
 </html>

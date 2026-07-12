@@ -179,9 +179,14 @@ class AppointmentProcessor:
     
     def update_history_from_data(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
         """从解析数据更新预约历史"""
-        # 检查是否在等待用户确认推荐发型师
         if appointment_history.get('awaiting_confirmation'):
-            return self._handle_recommendation_response(appointment_history, data)
+            if self._is_new_appointment_request(data):
+                logger.info("appointment_pending_replaced_by_new_request")
+                self.clear_pending_recommendation(appointment_history)
+            elif self._is_explicit_confirmation(data):
+                return self._handle_recommendation_response(appointment_history, data)
+            else:
+                return False
         
         # 只更新有值的字段，避免覆盖之前的信息
         for key in [
@@ -205,22 +210,52 @@ class AppointmentProcessor:
             if not appointment_history.get("duration") or appointment_history.get("duration") == "未知":
                 appointment_history["duration"] = f"{service.standard_duration}分钟"
 
-        required_fields = ["start_time", "project", "duration"]
-        return all(
-            appointment_history.get(field) and appointment_history[field] != "未知" 
-            for field in required_fields
-        )
+        return self.has_required_fields(appointment_history)
+
+    @staticmethod
+    def _present(value: Any) -> bool:
+        return value not in (None, "", "未知")
+
+    def has_required_fields(self, appointment_history: Dict[str, Any]) -> bool:
+        return not self.get_missing_fields(appointment_history)
+
+    def get_missing_fields(self, appointment_history: Dict[str, Any]) -> list[str]:
+        required_fields = ("start_time", "project", "duration")
+        return [field for field in required_fields if not self._present(appointment_history.get(field))]
+
+    def _is_new_appointment_request(self, data: Dict[str, Any]) -> bool:
+        return self._present(data.get("start_time")) and self._present(data.get("project"))
+
+    @staticmethod
+    def _is_explicit_confirmation(data: Dict[str, Any]) -> bool:
+        response = str(data.get("confirmation") or "").strip().lower()
+        allowed = {
+            "是", "好", "可以", "同意", "确定", "行", "yes", "ok",
+            "不", "不要", "不行", "不同意", "换", "换一个", "no",
+        }
+        return response in allowed
+
+    @staticmethod
+    def clear_pending_recommendation(appointment_history: Dict[str, Any]) -> None:
+        for key in (
+            "awaiting_confirmation",
+            "recommended_stylist",
+            "original_stylist",
+            "confirmed_stylist",
+            "recommendation_declined",
+        ):
+            appointment_history.pop(key, None)
 
     def _handle_recommendation_response(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
         """处理用户对推荐发型师的回应"""
-        user_response = data.get('confirmation', '').lower()
+        user_response = str(data.get('confirmation') or '').strip().lower()
         
         # 判断用户是否同意推荐
-        positive_responses = ['是', '好', '可以', '同意', '确定', 'yes', 'ok', '行']
-        negative_responses = ['不', '不要', '不行', '不同意', '换', 'no']
+        positive_responses = {'是', '好', '可以', '同意', '确定', 'yes', 'ok', '行'}
+        negative_responses = {'不', '不要', '不行', '不同意', '换', '换一个', 'no'}
         
-        is_positive = any(pos in user_response for pos in positive_responses)
-        is_negative = any(neg in user_response for neg in negative_responses)
+        is_positive = user_response in positive_responses
+        is_negative = user_response in negative_responses
         
         if is_positive and not is_negative:
             # 用户同意推荐，更新发型师信息
@@ -343,10 +378,13 @@ class AppointmentProcessor:
             appointment_history["duration"]
         )
         # 保存预约到数据库
-        success = self.appointment_database.save_appointment(
+        saved = self.appointment_database.save_appointment_detailed(
             stylist["id"], start_time, end_time, appointment_history, session_id
         )
-        if success:
+        if saved.success:
+            appointment_history["appointment_id"] = saved.appointment_id
+            appointment_history["schedule_id"] = saved.schedule_id
+            appointment_history["start_time"] = start_time.strftime("%Y-%m-%d %H:%M")
             # 更新内存中的忙碌时段
             self.appointment_database.update_memory_schedule(stylist["id"], start_time, end_time)
             base_message = self.message_builder.create_appointment_success_message(stylist, appointment_history)
@@ -418,17 +456,43 @@ class AppointmentProcessor:
             return "\n".join(parts).strip()
         return ""
     
-    async def handle_incomplete_info(self, data: Dict[str, Any], appointment_history: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def handle_incomplete_info(
+        self,
+        data: Dict[str, Any],
+        appointment_history: Dict[str, Any],
+        session_id: str = "unknown",
+        current_state: Any = None,
+    ) -> AsyncGenerator[str, None]:
         """处理信息不完整的情况"""
-        # 确定缺失的信息
-        missing = []
-        if not appointment_history.get("start_time") or appointment_history.get("start_time") == "未知":
-            missing.append("start_time")
-        if not appointment_history.get("project") or appointment_history.get("project") == "未知":
-            missing.append("project")
-        if not appointment_history.get("duration") or appointment_history.get("duration") == "未知":
-            missing.append("duration")
-        
+        missing = self.get_missing_fields(appointment_history)
+        if not missing:
+            logger.warning(
+                "appointment_state_inconsistent session_id=%s current_state=%s "
+                "awaiting_confirmation=%s required_fields_complete=true",
+                session_id,
+                getattr(current_state, "value", current_state),
+                bool(appointment_history.get("awaiting_confirmation")),
+            )
+            if appointment_history.get("awaiting_confirmation"):
+                yield "[REPLY][预约机器人]请明确回复“是”或“不”，或者直接告诉我新的预约时间和服务。"
+            else:
+                yield "[REPLY][预约机器人]预约状态已恢复，请重新发送本次预约需求。"
+            return
+
+        labels = {
+            "start_time": "预约日期和时间",
+            "project": "服务项目",
+            "duration": "服务时长",
+        }
         reply = self.message_builder.create_missing_info_questions(missing)
-        yield f"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：{', '.join(missing)}，我需要询问用户补充这些信息"
+        missing_text = "、".join(labels[field] for field in missing)
+        logger.info(
+            "appointment_missing_fields session_id=%s current_state=%s "
+            "awaiting_confirmation=%s required_fields_complete=false missing=%s",
+            session_id,
+            getattr(current_state, "value", current_state),
+            bool(appointment_history.get("awaiting_confirmation")),
+            ",".join(missing),
+        )
+        yield f"[THOUGHT][预约机器人]预约信息还需要补充：{missing_text}。"
         yield f"[REPLY][预约机器人]{reply}"

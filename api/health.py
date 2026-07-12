@@ -12,11 +12,20 @@ from sqlalchemy import text
 from db.base import SessionManager
 from services.mcp_knowledge_gateway import get_mcp_knowledge_gateway
 
-router = APIRouter(tags=["健康检查"])
+router = APIRouter(tags=["系统状态"])
 
 
-@router.get("/health")
+@router.get(
+    "/health",
+    summary="获取系统健康状态",
+    description="返回应用、SQLite、MCP RAG collection 和 LLM 配置状态的机器可读结果。",
+)
 async def get_health(request: Request) -> Dict[str, Any]:
+    return build_health_status(request)
+
+
+def build_health_status(request: Request) -> Dict[str, Any]:
+    """Build health data without creating another MCP gateway or self-HTTP call."""
     gateway = getattr(request.app.state, "rag_gateway", None) or get_mcp_knowledge_gateway()
     database_status = _database_status()
     mcp_status = "healthy" if gateway.enabled and gateway.is_connected else "unavailable"

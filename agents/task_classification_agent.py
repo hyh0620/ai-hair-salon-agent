@@ -77,6 +77,20 @@ class TaskClassificationAgent:
         async for token in self.classification_processor.process_task_stream(task):
             yield token
 
+    async def route_task_stream(self, task, route):
+        """Route a message selected by the stateless backend pre-router."""
+        if route == "appointment":
+            if self.state_manager.is_in_appointment_flow():
+                stream = self.agent_router.route_by_state(task)
+            else:
+                stream = self.agent_router.route_to_appointment(task)
+        elif route == "consultation":
+            stream = self.agent_router.route_to_consultation(task)
+        else:
+            stream = self.classification_processor.process_task_stream(task)
+        async for token in stream:
+            yield token
+
     async def handle_unrelated(self, user_input):
         """处理无关请求（同步版本）"""
         # 与预约无关的请求应该重新进行分类，而不是直接拒绝

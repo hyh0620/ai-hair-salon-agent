@@ -57,19 +57,19 @@ async def get_user_analysis(user_id: str = "default_user") -> UserAnalysisRespon
         return UserAnalysisResponse()
 
 
-@router.get("/analysis", response_model=UserAnalysisResponse)
+@router.get("/analysis", response_model=UserAnalysisResponse, summary="获取用户服务偏好分析")
 async def get_default_user_analysis():
     """获取默认用户的行为分析数据"""
     return await get_user_analysis("default_user")
 
 
-@router.get("/dashboard_data", response_model=UserAnalysisResponse)
+@router.get("/dashboard_data", response_model=UserAnalysisResponse, summary="获取用户行为仪表板数据")
 async def get_dashboard_data():
     """获取用户行为仪表板数据"""
     return await get_user_analysis("default_user")
 
 
-@router_underscore.get("/dashboard_data", response_model=UserAnalysisResponse)
+@router_underscore.get("/dashboard_data", response_model=UserAnalysisResponse, include_in_schema=False)
 async def get_dashboard_data_underscore():
     """获取用户行为仪表板数据（下划线版本）"""
     return await get_user_analysis("default_user")

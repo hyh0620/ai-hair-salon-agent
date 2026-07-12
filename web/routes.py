@@ -3,11 +3,17 @@ Web界面路由
 
 处理前端页面渲染和聊天功能
 """
-from fastapi import APIRouter, Request
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from api.chat_handler import ProcessUserInput_stream
+from api.chat_handler import (
+    ProcessUserInput_stream,
+    get_chat_session_registry,
+    route_user_message,
+)
 import logging
 
 # 创建logger实例
@@ -21,17 +27,47 @@ router = APIRouter(tags=["Web界面"])
 class ChatRequest(BaseModel):
     message: str
     state: str | None = None
+    session_id: str | None = None
+    route: str | None = None
+
+
+class ChatResetRequest(BaseModel):
+    session_id: str | None = None
+
+
+class ChatRouteRequest(BaseModel):
+    message: str
 
 @router.get("/", response_class=HTMLResponse, summary="主页")
 async def read_root(request: Request):
     """渲染主页聊天界面"""
     return templates.TemplateResponse("index.html", {"request": request})
 
+
+@router.get("/status", response_class=HTMLResponse, summary="系统状态页面")
+async def system_status_page(request: Request):
+    from api.health import build_health_status
+    from config.time_config import time_config
+
+    return templates.TemplateResponse(
+        "system_status.html",
+        {
+            "request": request,
+            "status": build_health_status(request),
+            "updated_at": time_config.current_datetime_str(),
+            "version": "1.0.0",
+        },
+    )
+
 @router.post("/chat/stream", summary="流式聊天")
 async def chat_stream_endpoint(chat: ChatRequest):
     """处理流式聊天请求"""
     async def token_generator():
-        async for token in ProcessUserInput_stream(chat.message):
+        async for token in ProcessUserInput_stream(
+            chat.message,
+            session_id=chat.session_id,
+            route=chat.route,
+        ):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
 
@@ -39,9 +75,25 @@ async def chat_stream_endpoint(chat: ChatRequest):
 async def chat_endpoint(chat: ChatRequest):
     """非流式路径入口，页面默认使用/chat/stream"""
     async def token_generator():
-        async for token in ProcessUserInput_stream(chat.message):
+        async for token in ProcessUserInput_stream(
+            chat.message,
+            session_id=chat.session_id,
+            route=chat.route,
+        ):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
+
+
+@router.post("/api/chat/route", include_in_schema=False)
+async def route_chat_message(payload: ChatRouteRequest):
+    """Select the page endpoint without executing a task or mutating session state."""
+    return {"route": route_user_message(payload.message)}
+
+
+@router.post("/api/chat/reset", include_in_schema=False)
+async def reset_chat_session(payload: ChatResetRequest):
+    new_session_id = get_chat_session_registry().reset(payload.session_id)
+    return {"status": "reset", "session_id": new_session_id}
 
 @router.get("/user_behavior", response_class=HTMLResponse, summary="用户行为分析页面")
 async def user_behavior_page(request: Request):
@@ -88,38 +140,44 @@ async def stylist_page(request: Request):
         })
 
 @router.get("/stylist-schedule", response_class=HTMLResponse, summary="发型师排班页面")
-async def stylist_schedule_page(request: Request):
+async def stylist_schedule_page(
+    request: Request,
+    selected_date: date | None = Query(default=None, alias="date"),
+):
     """发型师排班页面"""
     try:
-        from api.stylist import get_all_stylists_schedule_today
+        from api.stylist import build_stylist_schedules
         from config.time_config import time_config
-        
-        # 获取当前日期
-        current_date = time_config.current_date_str()
-        
-        # 通过API层获取所有发型师的排班数据
-        schedules_data = await get_all_stylists_schedule_today()
-        
-        # 构建排班数据格式 - 直接使用API返回的数据
-        schedule = []
-        for schedule_item in schedules_data:
-            schedule.append({
-                "id": schedule_item["stylist_id"],
-                "name": schedule_item["stylist_name"],
-                "busy_periods": schedule_item["busy_periods"]
-            })
+        target_date = selected_date or time_config.today().date()
+        schedules_data = build_stylist_schedules(target_date)
+        schedule = [
+            {
+                "id": item.stylist_id,
+                "name": item.stylist_name,
+                "busy_periods": [period.model_dump() for period in item.busy_periods],
+            }
+            for item in schedules_data.stylists
+        ]
         
         return templates.TemplateResponse("stylist_schedule.html", {
             "request": request,
             "schedule": schedule,
-            "current_date": current_date
+            "selected_date": target_date.isoformat(),
+            "previous_date": (target_date - timedelta(days=1)).isoformat(),
+            "next_date": (target_date + timedelta(days=1)).isoformat(),
+            "today": time_config.today().date().isoformat(),
         })
     except Exception as e:
         logger.error(f"加载发型师排班数据失败: {str(e)}")
+        fallback_date = selected_date or date.today()
         return templates.TemplateResponse("stylist_schedule.html", {
             "request": request,
             "schedule": [],
-            "error": str(e)
+            "error": str(e),
+            "selected_date": fallback_date.isoformat(),
+            "previous_date": (fallback_date - timedelta(days=1)).isoformat(),
+            "next_date": (fallback_date + timedelta(days=1)).isoformat(),
+            "today": date.today().isoformat(),
         })
 
 @router.get("/user_behavior_analysis", response_class=HTMLResponse, summary="用户行为分析页面")

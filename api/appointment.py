@@ -44,6 +44,7 @@ def _request_to_history(request: AppointmentRequest) -> Dict[str, Any]:
     "/create",
     response_model=DataResponse,
     summary="创建理发店预约",
+    description="使用服务目录、营业时间、发型师排班和 SQLite 冲突校验创建预约；LLM、MCP 与 RAG 不参与最终业务裁决。",
 )
 async def create_appointment(request: AppointmentRequest):
     """Create an appointment using catalog, schedule and conflict rules."""
@@ -89,19 +90,20 @@ async def create_appointment(request: AppointmentRequest):
                 logger.info("appointment_rejected trace_id=%s reason=no_available_stylist", trace_id)
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="当前条件下没有可预约发型师")
 
-        saved = appointment_service.save_appointment(
+        saved = appointment_service.save_appointment_detailed(
             stylist_id=str(stylist["id"]),
             start_time=start_time,
             end_time=end_time,
             appointment_history=details,
             session_id=request.user_id,
         )
-        if not saved:
+        if not saved.success:
             logger.info("appointment_rejected trace_id=%s reason=save_conflict", trace_id)
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="预约保存失败，可能存在时段冲突")
 
         logger.info("appointment_response trace_id=%s status=confirmed stylist_id=%s service=%s", trace_id, stylist["id"], details["project"])
         response = AppointmentResponse(
+            appointment_id=saved.appointment_id,
             user_id=request.user_id,
             project=details["project"],
             start_time=start_time.strftime("%Y-%m-%d %H:%M"),

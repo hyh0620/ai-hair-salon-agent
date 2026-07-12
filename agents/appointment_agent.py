@@ -135,7 +135,20 @@ class AppointmentAgent:
                 return
             
             # 5. 处理信息不完整的情况
-            async for token in self.appointment_processor.handle_incomplete_info(data, self.appointment_history):
+            if self.appointment_processor.has_required_fields(self.appointment_history):
+                async for token in self.appointment_processor.handle_complete_appointment(
+                    self.appointment_history,
+                    self.session_id,
+                ):
+                    yield token
+                return
+
+            async for token in self.appointment_processor.handle_incomplete_info(
+                data,
+                self.appointment_history,
+                session_id=self.session_id,
+                current_state=getattr(self.state, "value", self.state),
+            ):
                 yield token
                 
         except Exception as e:
