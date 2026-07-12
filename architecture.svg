@@ -65,8 +65,8 @@
 
   <rect class="entry" x="95" y="500" width="240" height="118" rx="12"/>
   <text class="node-title" x="141" y="535">任务 / Agent 层</text>
-  <text class="small" x="142" y="562">意图分类 · 对话</text>
-  <text class="small" x="169" y="586">仅负责路由</text>
+  <text class="small" x="142" y="562">意图分类 · 槽位收集</text>
+  <text class="small" x="169" y="586">不做业务裁决</text>
 
   <path class="arrow-blue" d="M215 307 L215 345"/>
   <path class="arrow-blue" d="M215 455 L215 500"/>
