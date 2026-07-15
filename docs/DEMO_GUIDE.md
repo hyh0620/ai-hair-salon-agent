@@ -116,6 +116,20 @@ When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process t
 
 该问题应进入 Consultation 并显示 Citations。LLM 负责理解约束和组织回复；候选排序、价格、时长、排班与预约结果由确定性后端负责。
 
+## Partial Booking Slots / 多轮预约槽位演示
+
+在同一个 session 中依次输入：
+
+```text
+预约明天
+男士短发
+下午两点
+```
+
+第一轮只保存日期，继续询问服务和具体时间，不生成默认小时。第二轮由 `SERVICE_CATALOG` 补充男士短发的标准时长与价格，仍不查询发型师、不写 SQLite，也不调用天气。第三轮才将已保存日期与 14:00 组合，进入营业时间、真实排班和冲突校验；保存成功并取得真实 `appointment_id` 后，才可追加上海天气提醒。
+
+日期与时间范围同样分别保存。例如 `预约明天下午` 后补充 `男士短发`，系统会调用 `AvailabilityService` 搜索下午的真实候选，而不是直接创建 12:00 的预约。LLM 负责理解用户约束；标准时长、价格、候选计算和最终预约结果由确定性后端处理。
+
 ## Suggested Questions / 建议演示问题
 
 - `染发前后有什么注意事项？`

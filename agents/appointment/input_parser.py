@@ -37,15 +37,15 @@ class InputParser:
                 "重要：请你只输出纯JSON格式，不要添加任何markdown标记如```json或```，不要添加任何其他文字说明，直接输出JSON：\n"
                 "{{\n"
                 '  "gender": "可选的发型师性别偏好（如男/女/未知）",\n'
-                '  "start_time": "预约起始时间，必须转换为标准格式YYYY-MM-DD HH:MM。如果用户说今天下午3点，转换为当前日期 15:00；如果说明天上午10点，转换为明天日期 10:00。如果只说时间没说日期，默认为今天。如果完全没有时间信息则为未知",\n'
-                '  "duration": "服务时长，统一转换为分钟数格式，如180分钟、60分钟。如果用户未说明但服务项目能推断出常见时长，也先填未知，由后端服务目录决定",\n'
+                '  "start_time": "只有当前用户输入同时明确了日期和具体时刻时，才转换为YYYY-MM-DD HH:MM。只说日期或上午/下午/晚上时必须填未知，不得补00:00或默认营业时间",\n'
+                '  "duration": "统一填未知。标准时长由后端服务目录根据project确定，不要求用户提供",\n'
                 '  "project": "理发店服务项目（如男士短发/女士剪发/洗剪吹/染发/烫发/造型/头皮护理/未知）",\n'
                 '  "preference": "用户对发型师能力的可选偏好（如擅长渐变推剪/染发调色/卷发设计/无）",\n'
                 '  "style_preference": "可选风格偏好（如清爽、商务、自然、显白、蓬松、未知）",\n'
                 '  "budget": "可选预算，保留数字和单位，如300元；没有则为未知",\n'
                 '  "stylist_name": "指定发型师姓名（如果用户明确提到发型师名字，如林浩、周晴等，否则为未知）",\n'
                 '  "confirmation": "如果用户在回应发型师推荐的确认问题，提取用户的回复内容（如确认/好的/可以/就他/取消/换一个等），否则为未知",\n'
-                '  "info_complete": "当start_time、project、duration都不为未知时为true。发型师姓名、性别、预算和风格偏好都不是必填项",\n'
+                '  "info_complete": "仅当用户明确提供日期、具体时刻和project时为true。duration由后端补齐，不是用户必填项",\n'
                 '  "unrelated": "如果用户的问题和预约无关（如问天气、聊天等），则为true，否则为false。注意：对推荐发型师的确认回复（是/不等）不应标记为unrelated",\n'
                 '  "missing_info": "如果info_complete为false，请列出缺少的关键信息，如[start_time, project]等"\n'
                 "}}\n"
@@ -53,9 +53,9 @@ class InputParser:
                 "1. 如果用户明确指定了发型师姓名（如\"林浩发型师\"、\"预约周晴\"等），请务必提取stylist_name\n"
                 "2. 如果用户在回应推荐发型师的确认问题（如回复\"确认\"、\"好的\"、\"可以\"、\"就他\"、\"取消\"、\"换一个\"等），请提取到confirmation字段，并且不要将其标记为unrelated\n"
                 "3. 必需信息判断：\n"
-                "   - 核心必需信息只有start_time、project、duration\n"
+                "   - 用户必须提供日期、具体时刻和project；duration由后端服务目录决定\n"
                 "   - stylist_name、gender、budget、preference、style_preference只是可选偏好\n"
-                "4. 只有当所有核心必需信息都不是'未知'时，info_complete才为true\n"
+                "4. 只说日期或时段范围时，start_time必须为未知，由后端继续收集或搜索可用时段\n"
                 "5. 如果用户的问题和预约无关，请将unrelated设为true\n"
                 "再次强调：只输出纯JSON，不要有任何代码块标记或其他文字。"
             )
@@ -67,9 +67,10 @@ class InputParser:
         chat_history.add_message(HumanMessage(content=user_input))
         
         # 构建历史字符串
+        # Robot examples are excluded so the model cannot copy a suggested time
+        # into the user's slots. Persisted structured state is merged downstream.
         history_str = "\n".join(
-            [f"用户：{m.content}" if m.type == "human" else f"机器人：{m.content}" 
-             for m in chat_history.messages]
+            f"用户：{m.content}" for m in chat_history.messages if m.type == "human"
         )
         
         # 流式调用LLM

@@ -37,6 +37,29 @@ class ParsedAvailabilityRequest:
     stylist_name: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class BookingTemporalSlots:
+    target_date: Optional[date] = None
+    exact_time: Optional[time] = None
+    range_start: Optional[time] = None
+    range_end: Optional[time] = None
+    period_label: Optional[str] = None
+    date_label: Optional[str] = None
+
+    @property
+    def has_exact_datetime(self) -> bool:
+        return self.target_date is not None and self.exact_time is not None
+
+    @property
+    def has_search_range(self) -> bool:
+        return (
+            self.target_date is not None
+            and self.exact_time is None
+            and self.range_start is not None
+            and self.range_end is not None
+        )
+
+
 def _compact(text: str) -> str:
     return re.sub(r"\s+", "", (text or "").strip().lower())
 
@@ -90,6 +113,25 @@ def parse_availability_request(
     )
 
 
+def parse_booking_temporal_slots(
+    text: str,
+    now: Optional[datetime] = None,
+) -> BookingTemporalSlots:
+    """Parse only temporal facts explicitly present in the current user turn."""
+    now = now or time_config.now()
+    normalized = _compact(text)
+    target_date = _extract_date(normalized, now)
+    exact_time, range_start, range_end, period_label = _extract_time(normalized)
+    return BookingTemporalSlots(
+        target_date=target_date,
+        exact_time=exact_time,
+        range_start=range_start,
+        range_end=range_end,
+        period_label=period_label,
+        date_label=_date_label(normalized, target_date),
+    )
+
+
 def parse_selection_time(text: str) -> Optional[time]:
     exact, _, _, _ = _extract_time(_compact(text))
     return exact
@@ -112,6 +154,17 @@ def _extract_date(text: str, now: datetime) -> Optional[date]:
     if iso_match:
         try:
             return date(*(int(part) for part in iso_match.groups()))
+        except ValueError:
+            return None
+
+    month_day_match = re.search(r"(?<!\d)(\d{1,2})月(\d{1,2})日", text)
+    if month_day_match:
+        month, day = (int(part) for part in month_day_match.groups())
+        try:
+            candidate = date(today.year, month, day)
+            if candidate < today:
+                candidate = date(today.year + 1, month, day)
+            return candidate
         except ValueError:
             return None
 
@@ -138,6 +191,10 @@ def _extract_time(text: str) -> tuple[Optional[time], Optional[time], Optional[t
     }
     period_label = next((label for label in period_ranges if label in text), None)
 
+    if "午夜" in text:
+        exact = time(0, 0)
+        return exact, exact, exact, period_label
+
     colon_match = re.search(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)", text)
     if colon_match:
         hour, minute = map(int, colon_match.groups())
@@ -161,6 +218,19 @@ def _extract_time(text: str) -> tuple[Optional[time], Optional[time], Optional[t
         period_start, period_end = period_ranges[period_label]
         return None, period_start, period_end, period_label
     return None, None, None, None
+
+
+def _date_label(text: str, target_date: Optional[date]) -> Optional[str]:
+    if not target_date:
+        return None
+    for label in ("今天", "明天", "后天"):
+        if label in text:
+            return label
+    weekday_match = re.search(r"(下周|本周|这周)?(?:周|星期)([一二三四五六日天])", text)
+    if weekday_match:
+        modifier, weekday = weekday_match.groups()
+        return f"{modifier or ''}周{weekday}"
+    return target_date.isoformat()
 
 
 def _parse_hour(value: str) -> Optional[int]:

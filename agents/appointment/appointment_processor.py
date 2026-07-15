@@ -18,7 +18,12 @@ from .message_builder import MessageBuilder
 from .appointment_database import AppointmentDatabase
 from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
-from agents.appointment.availability_parser import ParsedAvailabilityRequest, parse_selection_time
+from agents.appointment.availability_parser import (
+    BookingTemporalSlots,
+    ParsedAvailabilityRequest,
+    parse_booking_temporal_slots,
+    parse_selection_time,
+)
 from config.time_config import time_config
 from services.availability_service import AvailabilitySearchRequest, AvailabilityService
 from services.service_catalog import SERVICE_CATALOG, normalize_service
@@ -341,40 +346,110 @@ class AppointmentProcessor:
             else None
         )
     
-    def update_history_from_data(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
+    def update_history_from_data(
+        self,
+        appointment_history: Dict[str, Any],
+        data: Dict[str, Any],
+        raw_user_text: Optional[str] = None,
+        now: Optional[datetime] = None,
+    ) -> bool:
         """从解析数据更新预约历史"""
+        parsed_data = dict(data)
         if appointment_history.get('awaiting_confirmation'):
-            if self._is_new_appointment_request(data):
+            if self._is_new_appointment_request(parsed_data):
                 logger.info("appointment_pending_replaced_by_new_request")
                 self.clear_pending_recommendation(appointment_history)
-            elif self._is_explicit_confirmation(data):
-                return self._handle_recommendation_response(appointment_history, data)
+            elif self._is_explicit_confirmation(parsed_data):
+                return self._handle_recommendation_response(appointment_history, parsed_data)
             else:
                 return False
-        
+
+        if raw_user_text is not None:
+            temporal = parse_booking_temporal_slots(raw_user_text, now=now)
+            self._merge_temporal_slots(appointment_history, temporal)
+            if self._present(parsed_data.get("start_time")) and not temporal.exact_time:
+                logger.warning(
+                    "llm_booking_time_rejected reason=no_explicit_time parsed_start_time=%s",
+                    parsed_data.get("start_time"),
+                )
+            parsed_data.pop("start_time", None)
+            parsed_data.pop("duration", None)
+
         # 只更新有值的字段，避免覆盖之前的信息
         for key in [
-            "duration",
             "gender",
-            "start_time",
             "project",
             "stylist_name",
             "preference",
             "style_preference",
             "budget",
         ]:
-            if data.get(key) and data[key] != "未知":
-                appointment_history[key] = data[key]
+            if parsed_data.get(key) and parsed_data[key] != "未知":
+                appointment_history[key] = parsed_data[key]
 
-        service = normalize_service(appointment_history.get("project"))
+        if raw_user_text is None:
+            for key in ("start_time", "duration"):
+                if parsed_data.get(key) and parsed_data[key] != "未知":
+                    appointment_history[key] = parsed_data[key]
+
+        raw_service = normalize_service(raw_user_text) if raw_user_text else None
+        service = raw_service or normalize_service(appointment_history.get("project"))
         if service:
             appointment_history["project"] = service.name
             appointment_history["service_key"] = service.key
             appointment_history["price"] = service.standard_price
-            if not appointment_history.get("duration") or appointment_history.get("duration") == "未知":
-                appointment_history["duration"] = f"{service.standard_duration}分钟"
+            appointment_history["duration"] = f"{service.standard_duration}分钟"
+
+        self._build_validated_start_time(appointment_history)
 
         return self.has_required_fields(appointment_history)
+
+    def _merge_temporal_slots(
+        self,
+        appointment_history: Dict[str, Any],
+        temporal: BookingTemporalSlots,
+    ) -> None:
+        if temporal.target_date:
+            appointment_history["requested_date"] = temporal.target_date.isoformat()
+            appointment_history["requested_date_label"] = temporal.date_label or temporal.target_date.isoformat()
+
+        if temporal.exact_time:
+            appointment_history["requested_exact_time"] = temporal.exact_time.strftime("%H:%M")
+            for key in ("requested_range_start", "requested_range_end", "requested_period_label"):
+                appointment_history.pop(key, None)
+        elif temporal.range_start and temporal.range_end:
+            appointment_history["requested_range_start"] = temporal.range_start.strftime("%H:%M")
+            appointment_history["requested_range_end"] = temporal.range_end.strftime("%H:%M")
+            appointment_history["requested_period_label"] = temporal.period_label
+            appointment_history.pop("requested_exact_time", None)
+            appointment_history["start_time"] = None
+            appointment_history["start_time_validated"] = False
+
+    @staticmethod
+    def _clear_requested_time(appointment_history: Dict[str, Any]) -> None:
+        for key in (
+            "requested_exact_time",
+            "requested_range_start",
+            "requested_range_end",
+            "requested_period_label",
+        ):
+            appointment_history.pop(key, None)
+        appointment_history["start_time"] = None
+        appointment_history["start_time_validated"] = False
+
+    @staticmethod
+    def _build_validated_start_time(appointment_history: Dict[str, Any]) -> None:
+        requested_date = appointment_history.get("requested_date")
+        requested_time = appointment_history.get("requested_exact_time")
+        if requested_date and requested_time:
+            appointment_history["start_time"] = f"{requested_date} {requested_time}"
+            appointment_history["start_time_validated"] = True
+        elif requested_date or any(
+            appointment_history.get(key)
+            for key in ("requested_range_start", "requested_range_end", "requested_period_label")
+        ):
+            appointment_history["start_time"] = None
+            appointment_history["start_time_validated"] = False
 
     @staticmethod
     def _present(value: Any) -> bool:
@@ -384,8 +459,60 @@ class AppointmentProcessor:
         return not self.get_missing_fields(appointment_history)
 
     def get_missing_fields(self, appointment_history: Dict[str, Any]) -> list[str]:
-        required_fields = ("start_time", "project", "duration")
-        return [field for field in required_fields if not self._present(appointment_history.get(field))]
+        missing = []
+        if not self._present(appointment_history.get("project")):
+            missing.append("project")
+
+        structured_temporal = any(
+            appointment_history.get(key)
+            for key in (
+                "requested_date",
+                "requested_exact_time",
+                "requested_range_start",
+                "requested_range_end",
+            )
+        )
+        if structured_temporal:
+            if not appointment_history.get("requested_date"):
+                missing.append("requested_date")
+            has_exact = bool(appointment_history.get("requested_exact_time"))
+            has_range = bool(
+                appointment_history.get("requested_range_start")
+                and appointment_history.get("requested_range_end")
+            )
+            if not has_exact and not has_range:
+                missing.append("requested_time")
+        elif not self._present(appointment_history.get("start_time")):
+            missing.extend(["requested_date", "requested_time"])
+        return missing
+
+    @staticmethod
+    def should_search_availability(appointment_history: Dict[str, Any]) -> bool:
+        return bool(
+            appointment_history.get("project")
+            and appointment_history.get("requested_date")
+            and appointment_history.get("requested_range_start")
+            and appointment_history.get("requested_range_end")
+            and not appointment_history.get("requested_exact_time")
+        )
+
+    @staticmethod
+    def availability_from_booking_history(
+        appointment_history: Dict[str, Any],
+    ) -> ParsedAvailabilityRequest:
+        target_date = datetime.strptime(appointment_history["requested_date"], "%Y-%m-%d").date()
+        return ParsedAvailabilityRequest(
+            intent="search_availability",
+            target_date=target_date,
+            range_start=time.fromisoformat(appointment_history["requested_range_start"]),
+            range_end=time.fromisoformat(appointment_history["requested_range_end"]),
+            exact_time=None,
+            period_label=appointment_history.get("requested_period_label"),
+            service_key=appointment_history.get("service_key"),
+            service_name=appointment_history.get("project"),
+            specialty=appointment_history.get("specialty"),
+            stylist_name=appointment_history.get("stylist_name"),
+        )
 
     def _is_new_appointment_request(self, data: Dict[str, Any]) -> bool:
         return self._present(data.get("start_time")) and self._present(data.get("project"))
@@ -720,6 +847,20 @@ class AppointmentProcessor:
             appointment_history.pop('recommended_stylist', None)
             appointment_history.pop('original_stylist', None)
             return
+
+        validation_error = self._validate_booking_window(appointment_history)
+        if validation_error:
+            start_hour, end_hour = time_config.get_business_hours()
+            if validation_error == "outside_business_hours":
+                reply = self.message_builder.create_outside_business_hours_message(start_hour, end_hour)
+            elif validation_error == "past_appointment":
+                reply = "\n机器人：该预约时间已经过去，请重新选择具体时间。已保留预约日期和服务项目。\n"
+            else:
+                reply = self.message_builder.create_save_failure_message("invalid_start_time")
+            self._clear_requested_time(appointment_history)
+            yield f"[REPLY][预约机器人]{reply}"
+            yield "[SIGNAL]booking_incomplete"
+            return
         
         # 检查是否用户确认了推荐发型师
         if appointment_history.get('confirmed_stylist'):
@@ -729,6 +870,9 @@ class AppointmentProcessor:
             stylist['original_stylist'] = appointment_history.get('original_stylist')
             reply = await self._process_successful_appointment(stylist, appointment_history, session_id)
             yield f"[REPLY][预约机器人]{reply}"
+            if appointment_history.get("booking_failure_reason"):
+                self._clear_requested_time(appointment_history)
+                yield "[SIGNAL]booking_incomplete"
             # 清理状态
             appointment_history.pop('confirmed_stylist', None)
             appointment_history.pop('recommended_stylist', None)
@@ -778,9 +922,29 @@ class AppointmentProcessor:
                 # 正常预约流程
                 reply = await self._process_successful_appointment(stylist, appointment_history, session_id)
                 yield f"[REPLY][预约机器人]{reply}"
+                if appointment_history.get("booking_failure_reason"):
+                    self._clear_requested_time(appointment_history)
+                    yield "[SIGNAL]booking_incomplete"
         else:
             reply = self.message_builder.create_appointment_failure_message(stylist_name)
             yield f"[REPLY][预约机器人]{reply}"
+            self._clear_requested_time(appointment_history)
+            yield "[SIGNAL]booking_incomplete"
+
+    def _validate_booking_window(self, appointment_history: Dict[str, Any]) -> Optional[str]:
+        start_time, end_time, _ = self.stylist_finder.parse_time_and_duration(
+            appointment_history.get("start_time"),
+            appointment_history.get("duration"),
+        )
+        if not start_time or not end_time:
+            return "invalid_start_time"
+        now = time_config.now()
+        comparable_now = now if start_time.tzinfo else now.replace(tzinfo=None)
+        if start_time <= comparable_now:
+            return "past_appointment"
+        if not self.appointment_database.appointment_service.is_within_business_hours(start_time, end_time):
+            return "outside_business_hours"
+        return None
     
     async def _process_successful_appointment(self, stylist: Dict[str, Any],
                                            appointment_history: Dict[str, Any], session_id: str) -> str:
@@ -796,6 +960,7 @@ class AppointmentProcessor:
             stylist["id"], start_time, end_time, appointment_history, session_id
         )
         if saved.success:
+            appointment_history.pop("booking_failure_reason", None)
             appointment_history["appointment_id"] = saved.appointment_id
             appointment_history["schedule_id"] = saved.schedule_id
             appointment_history["start_time"] = start_time.strftime("%Y-%m-%d %H:%M")
@@ -805,7 +970,8 @@ class AppointmentProcessor:
             weather_reminder = await self._create_optional_weather_reminder(appointment_history)
             return f"{base_message}{weather_reminder}" if weather_reminder else base_message
         else:
-            return self.message_builder.create_save_failure_message()
+            appointment_history["booking_failure_reason"] = saved.reason or "persistence_error"
+            return self.message_builder.create_save_failure_message(saved.reason)
 
     async def _create_optional_weather_reminder(self, appointment_history: Dict[str, Any]) -> str:
         try:
@@ -911,11 +1077,26 @@ class AppointmentProcessor:
             return
 
         labels = {
-            "start_time": "预约日期和时间",
+            "requested_date": "预约日期",
+            "requested_time": "预约时间",
             "project": "服务项目",
-            "duration": "服务时长",
         }
-        reply = self.message_builder.create_missing_info_questions(missing)
+        acknowledgements = []
+        if appointment_history.get("requested_date") and not appointment_history.get("_date_announced"):
+            date_label = (
+                appointment_history.get("requested_date_label")
+                or appointment_history["requested_date"]
+            )
+            acknowledgements.append(f"已记录预约日期：{date_label}。")
+            appointment_history["_date_announced"] = True
+        if appointment_history.get("project") and not appointment_history.get("_service_announced"):
+            acknowledgements.append(
+                f"已选择{appointment_history['project']}，门店标准时长为"
+                f"{appointment_history['duration']}，价格{appointment_history['price']}元。"
+            )
+            appointment_history["_service_announced"] = True
+        questions = self.message_builder.create_missing_info_questions(missing, appointment_history)
+        reply = "\n".join(acknowledgements) + questions
         missing_text = "、".join(labels[field] for field in missing)
         logger.info(
             "appointment_missing_fields session_id=%s current_state=%s "

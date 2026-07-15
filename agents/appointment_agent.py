@@ -163,7 +163,21 @@ class AppointmentAgent:
                 data = self.input_parser.parse_data(ai_content)
 
             # 2. 将本轮槽位合并到会话状态
-            self.finished = self.appointment_processor.update_history_from_data(self.appointment_history, data)
+            self.finished = self.appointment_processor.update_history_from_data(
+                self.appointment_history,
+                data,
+                raw_user_text=user_input,
+            )
+
+            if self.appointment_processor.should_search_availability(self.appointment_history):
+                parsed = self.appointment_processor.availability_from_booking_history(
+                    self.appointment_history
+                )
+                async for token in self.appointment_processor.handle_availability_search(
+                    parsed, self.appointment_history, self.session_id
+                ):
+                    yield token
+                return
             
             # 3. 处理与预约无关的请求
             # 如果正在等待用户确认推荐发型师，不要转交给归类机器人
@@ -183,6 +197,7 @@ class AppointmentAgent:
             # 4. 处理预约完成的情况
             if self.finished:
                 recommendation_pending = False
+                booking_incomplete = False
                 async for token in self.appointment_processor.handle_complete_appointment(
                     self.appointment_history, self.session_id
                 ):
@@ -192,10 +207,18 @@ class AppointmentAgent:
                         # 将 finished 设为 False，让预约流程继续
                         self.finished = False
                         continue
+                    if token == "[SIGNAL]booking_incomplete":
+                        booking_incomplete = True
+                        self.finished = False
+                        continue
                     yield token
                 
                 # 只有在真正完成预约时才重置状态
-                if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
+                if (
+                    not recommendation_pending
+                    and not booking_incomplete
+                    and not self.appointment_history.get('awaiting_confirmation')
+                ):
                     self._reset_state_after_appointment()
                 return
             

@@ -307,5 +307,5 @@ def test_save_conflict_does_not_call_weather(monkeypatch, tmp_path):
     monkeypatch.setattr(WeatherTool, "get_weather_context", forbidden_weather_call)
     reply = run(processor._process_successful_appointment(stylist, appointment_history(), "conflict"))
 
-    assert "预约保存失败" in reply
+    assert "该时间刚刚被其他预约占用" in reply
     assert "天气提醒" not in reply

@@ -9,8 +9,7 @@ class MessageBuilder:
 
     def __init__(self):
         self.missing_info_prompts = {
-            "start_time": "请问您想预约哪一天、几点？",
-            "duration": "请问预计需要多长时间？如果不确定，可以告诉我服务项目，我会按门店标准时长安排。",
+            "requested_date": "请问您想预约哪一天？",
             "project": "请问您需要什么服务项目？例如男士短发、女士剪发、洗剪吹、染发或烫发。",
             "preference": "您有发型风格或发型师专长偏好吗？",
         }
@@ -101,8 +100,22 @@ class MessageBuilder:
             return f"\n机器人：抱歉，没有找到名为'{stylist_name}'的发型师。请确认姓名，或让我按服务项目推荐。\n"
         return "\n机器人：抱歉，该时间段没有合适的发型师空闲，请选择其他时间或调整偏好。\n"
 
-    def create_missing_info_questions(self, missing_info: List[str]) -> str:
-        questions = [self.missing_info_prompts.get(field, f"请补充{field}信息") for field in missing_info]
+    def create_missing_info_questions(
+        self,
+        missing_info: List[str],
+        appointment_history: Dict[str, Any] = None,
+    ) -> str:
+        appointment_history = appointment_history or {}
+        date_label = appointment_history.get("requested_date_label") or appointment_history.get("requested_date")
+        questions = []
+        for field in missing_info:
+            if field == "requested_time":
+                if date_label:
+                    questions.append(f"请问{date_label}希望预约上午、下午、晚上，还是具体几点？")
+                else:
+                    questions.append("请问希望预约上午、下午、晚上，还是具体几点？")
+            else:
+                questions.append(self.missing_info_prompts.get(field, f"请补充{field}信息"))
         return "\n" + " ".join(questions) + "\n"
 
     def create_unrelated_message(self) -> str:
@@ -111,8 +124,22 @@ class MessageBuilder:
     def create_parse_error_message(self) -> str:
         return "[REPLY][预约机器人]\n机器人：解析失败，请换一种说法再试。\n"
 
-    def create_save_failure_message(self) -> str:
-        return "\n机器人：抱歉，预约保存失败，可能是时间冲突或不在营业时间内，请更换时间后重试。\n"
+    def create_save_failure_message(self, reason: str = None) -> str:
+        messages = {
+            "outside_business_hours": "您选择的时间不在门店营业时间内，请重新选择具体时间。",
+            "schedule_conflict": "该时间刚刚被其他预约占用，请选择其他时间。",
+            "invalid_start_time": "预约时间无法识别，请重新告诉我具体日期和时间。",
+            "persistence_error": "系统暂时无法保存预约，请稍后重试。",
+        }
+        detail = messages.get(reason, "系统暂时无法保存预约，请稍后重试。")
+        return f"\n机器人：抱歉，{detail}\n"
+
+    @staticmethod
+    def create_outside_business_hours_message(start_hour: int, end_hour: int) -> str:
+        return (
+            f"\n机器人：门店营业时间为{start_hour:02d}:00—{end_hour:02d}:00，"
+            "您选择的时间不在营业时间内，请重新选择。已保留预约日期和服务项目。\n"
+        )
 
     def create_availability_options_message(
         self,
