@@ -127,6 +127,30 @@ def has_pending_availability_interaction(session: Optional[ChatSession]) -> bool
     return bool(history.get("awaiting_slot_selection") or history.get("awaiting_slot_confirmation"))
 
 
+def has_active_availability_search(session: Optional[ChatSession]) -> bool:
+    if session is None:
+        return False
+    appointment_agent = getattr(session.task_agent, "appointment_agent", None)
+    history = getattr(appointment_agent, "appointment_history", {}) or {}
+    return bool(history.get("availability_search_active"))
+
+
+def has_partial_appointment_slots(session: Optional[ChatSession]) -> bool:
+    if session is None:
+        return False
+    appointment_agent = getattr(session.task_agent, "appointment_agent", None)
+    history = getattr(appointment_agent, "appointment_history", {}) or {}
+    return any(
+        history.get(key)
+        for key in (
+            "requested_date",
+            "requested_exact_time",
+            "requested_range_start",
+            "project",
+        )
+    )
+
+
 def has_active_appointment_flow(session: Optional[ChatSession]) -> bool:
     if session is None:
         return False
@@ -148,7 +172,11 @@ def is_confirmation_response(user_input: str) -> bool:
 
 def route_user_message(user_input: str, session: Optional[ChatSession] = None) -> str:
     """Select a route without mutating Agent state."""
-    if has_pending_availability_interaction(session):
+    if (
+        has_pending_availability_interaction(session)
+        or has_active_availability_search(session)
+        or has_partial_appointment_slots(session)
+    ):
         return "appointment"
     pending_confirmation = has_pending_appointment_confirmation(session)
     if pending_confirmation:
@@ -177,20 +205,17 @@ async def ProcessUserInput_stream(
     session = _chat_sessions.get_or_create(session_id)
     try:
         async with session.lock:
+            detected_intent = detect_message_intent(user_input)
             effective_route = route_user_message(user_input, session)
-            if route != effective_route:
-                logger.info(
-                    "chat_route_overridden session_id=%s requested_route=%s effective_route=%s "
-                    "pending_confirmation=%s",
-                    session.session_id,
-                    route,
-                    effective_route,
-                    has_pending_appointment_confirmation(session),
-                )
             logger.info(
-                "chat_request session_id=%s route=%s state=%s",
+                "chat_route session_id=%s user_message_intent=%s requested_route=%s "
+                "effective_route=%s availability_search_active=%s pending_confirmation=%s state=%s",
                 session.session_id,
-                effective_route or "agent_classification",
+                detected_intent,
+                route or "unspecified",
+                effective_route,
+                has_active_availability_search(session),
+                has_pending_appointment_confirmation(session),
                 session.task_agent.state_manager.get_current_state().value,
             )
             if effective_route in {"appointment", "consultation"}:

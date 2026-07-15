@@ -128,7 +128,18 @@ When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process t
 
 第一轮只保存日期，继续询问服务和具体时间，不生成默认小时。第二轮由 `SERVICE_CATALOG` 补充男士短发的标准时长与价格，仍不查询发型师、不写 SQLite，也不调用天气。第三轮才将已保存日期与 14:00 组合，进入营业时间、真实排班和冲突校验；保存成功并取得真实 `appointment_id` 后，才可追加上海天气提醒。
 
+第三轮不会自动选择第一位可用发型师。未指定发型师时，精确时间与时间范围都通过 `AvailabilityService` 返回真实候选；用户回复候选序号或姓名后，系统再请求最终确认，确认成功才写入 SQLite。只有明确指定发型师的完整请求才进入现有指定发型师校验与替代推荐流程。
+
 日期与时间范围同样分别保存。例如 `预约明天下午` 后补充 `男士短发`，系统会调用 `AvailabilityService` 搜索下午的真实候选，而不是直接创建 12:00 的预约。LLM 负责理解用户约束；标准时长、价格、候选计算和最终预约结果由确定性后端处理。
+
+可用性查询也可以不包含“预约”二字：
+
+```text
+今天下午哪些理发师有空？
+男士短发
+```
+
+第一轮会保存今天下午的查询范围并询问服务。第二轮虽然单独看只有服务名，但当前 session 的 `availability_search_active` 优先，仍由 AppointmentAgent 查询 SQLite 真实排班，不调用 Consultation 或 MCP Knowledge Service。
 
 ## Suggested Questions / 建议演示问题
 

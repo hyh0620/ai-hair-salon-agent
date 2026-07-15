@@ -35,6 +35,7 @@ class ParsedAvailabilityRequest:
     service_name: Optional[str] = None
     specialty: Optional[str] = None
     stylist_name: Optional[str] = None
+    date_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -74,15 +75,41 @@ def detect_message_intent(text: str) -> str:
     consultation_markers = (
         "适合什么", "适合哪", "怎么护理", "如何护理", "注意事项", "能保持多久",
         "可以保持多久", "是什么效果", "什么效果", "几点营业", "营业时间", "价格多少",
-    )
-    availability_markers = (
-        r"谁有空", r"谁有时间", r"哪些老师", r"哪位老师", r"哪个老师",
-        r"找.{0,10}(老师|发型师)", r"(老师|发型师).{0,8}(有空|有时间)",
-        r"(擅长|会做).{0,12}(老师|发型师)", r"有空的(老师|发型师)",
+        "怎么打理", "如何打理", "主要负责什么", "怎么成为", "门店有哪些理发师",
+        "门店有哪些发型师", "门店有哪些老师",
     )
     if any(marker in normalized for marker in consultation_markers):
         return CONSULTATION
-    if any(re.search(pattern, normalized) for pattern in availability_markers):
+
+    temporal_query = bool(re.search(
+        r"(今天|明天|后天|(?:下周|本周|这周)?(?:周|星期)[一二三四五六日天]|"
+        r"20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}月\d{1,2}日|"
+        r"上午|中午|下午|晚上|\d{1,2}:\d{2}|[零一二两三四五六七八九十\d]+点)",
+        normalized,
+    ))
+    person_query = bool(re.search(
+        r"谁|(哪些|哪位|哪个).{0,8}(老师|发型师|理发师)|"
+        r"(老师|发型师|理发师).{0,8}(谁|哪些|哪位|哪个)",
+        normalized,
+    ))
+    availability_status = bool(re.search(
+        r"(有空|空闲|有时间|可约|可以预约|可以安排|档期)",
+        normalized,
+    ))
+    capability_query = bool(re.search(
+        r"(谁|哪些|哪位|哪个).{0,8}(能|可以|会).{0,12}(做|剪|染|烫)",
+        normalized,
+    ))
+    search_action = bool(re.search(
+        r"(找|查|看看|查询|安排).{0,18}(老师|发型师|理发师)|"
+        r"(擅长|会做).{0,12}(老师|发型师|理发师)",
+        normalized,
+    ))
+    if (
+        (availability_status and (person_query or temporal_query))
+        or (temporal_query and person_query and capability_query)
+        or search_action
+    ):
         return SEARCH_AVAILABILITY
     if normalized in {"确认", "好的", "好", "可以", "取消", "不用了", "不确认", "换一个"}:
         return CONSULTATION
@@ -98,10 +125,18 @@ def parse_availability_request(
     normalized = _compact(text)
     specialty = _extract_specialty(normalized)
     service = normalize_service(normalized) or service_for_specialty(specialty)
+    if (
+        specialty
+        and service
+        and specialty == service.name
+        and not re.search(r"(擅长|专长|会做|偏好)", normalized)
+    ):
+        specialty = None
     exact_time, period_start, period_end, period_label = _extract_time(normalized)
+    target_date = _extract_date(normalized, now)
     return ParsedAvailabilityRequest(
         intent=detect_message_intent(normalized),
-        target_date=_extract_date(normalized, now),
+        target_date=target_date,
         range_start=period_start,
         range_end=period_end,
         exact_time=exact_time,
@@ -110,6 +145,7 @@ def parse_availability_request(
         service_name=service.name if service else None,
         specialty=specialty,
         stylist_name=next((name for name in stylist_names if name and name in text), None),
+        date_label=_date_label(normalized, target_date),
     )
 
 

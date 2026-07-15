@@ -26,7 +26,7 @@ from agents.appointment.availability_parser import (
 )
 from config.time_config import time_config
 from services.availability_service import AvailabilitySearchRequest, AvailabilityService
-from services.service_catalog import SERVICE_CATALOG, normalize_service
+from services.service_catalog import SERVICE_CATALOG, normalize_service, structured_stylist_profile
 
 logger = logging.getLogger(__name__)
 
@@ -488,30 +488,40 @@ class AppointmentProcessor:
 
     @staticmethod
     def should_search_availability(appointment_history: Dict[str, Any]) -> bool:
-        return bool(
-            appointment_history.get("project")
-            and appointment_history.get("requested_date")
-            and appointment_history.get("requested_range_start")
+        if not appointment_history.get("project") or not appointment_history.get("requested_date"):
+            return False
+        has_range = bool(
+            appointment_history.get("requested_range_start")
             and appointment_history.get("requested_range_end")
             and not appointment_history.get("requested_exact_time")
         )
+        exact_without_stylist = bool(
+            appointment_history.get("requested_exact_time")
+            and not appointment_history.get("stylist_name")
+        )
+        return has_range or exact_without_stylist
 
     @staticmethod
     def availability_from_booking_history(
         appointment_history: Dict[str, Any],
     ) -> ParsedAvailabilityRequest:
         target_date = datetime.strptime(appointment_history["requested_date"], "%Y-%m-%d").date()
+        exact_text = appointment_history.get("requested_exact_time")
+        exact_time = time.fromisoformat(exact_text) if exact_text else None
+        range_start_text = appointment_history.get("requested_range_start") or exact_text
+        range_end_text = appointment_history.get("requested_range_end") or exact_text
         return ParsedAvailabilityRequest(
             intent="search_availability",
             target_date=target_date,
-            range_start=time.fromisoformat(appointment_history["requested_range_start"]),
-            range_end=time.fromisoformat(appointment_history["requested_range_end"]),
-            exact_time=None,
+            range_start=time.fromisoformat(range_start_text),
+            range_end=time.fromisoformat(range_end_text),
+            exact_time=exact_time,
             period_label=appointment_history.get("requested_period_label"),
             service_key=appointment_history.get("service_key"),
             service_name=appointment_history.get("project"),
             specialty=appointment_history.get("specialty"),
             stylist_name=appointment_history.get("stylist_name"),
+            date_label=appointment_history.get("requested_date_label"),
         )
 
     def _is_new_appointment_request(self, data: Dict[str, Any]) -> bool:
@@ -547,12 +557,24 @@ class AppointmentProcessor:
             "awaiting_slot_confirmation",
             "selected_availability_option",
             "availability_date",
+            "availability_date_label",
             "availability_range_start",
             "availability_range_end",
             "availability_exact_time",
             "availability_period_label",
             "availability_time_text",
             "specialty",
+        ):
+            appointment_history.pop(key, None)
+
+    @staticmethod
+    def _clear_availability_time(appointment_history: Dict[str, Any]) -> None:
+        for key in (
+            "availability_range_start",
+            "availability_range_end",
+            "availability_exact_time",
+            "availability_period_label",
+            "availability_time_text",
         ):
             appointment_history.pop(key, None)
 
@@ -568,6 +590,8 @@ class AppointmentProcessor:
         appointment_history["availability_search_active"] = True
         if parsed.target_date:
             appointment_history["availability_date"] = parsed.target_date.isoformat()
+        if parsed.date_label:
+            appointment_history["availability_date_label"] = parsed.date_label
         if parsed.range_start:
             appointment_history["availability_range_start"] = parsed.range_start.strftime("%H:%M")
         if parsed.range_end:
@@ -610,7 +634,19 @@ class AppointmentProcessor:
                 appointment_history.get("specialty"),
                 ",".join(missing),
             )
-            yield f"[REPLY][预约机器人]{' '.join(prompts[item] for item in missing)}"
+            if missing == ["service"]:
+                date_label = appointment_history.get("availability_date_label") or appointment_history.get("availability_date")
+                time_label = (
+                    appointment_history.get("availability_period_label")
+                    or appointment_history.get("availability_exact_time")
+                    or "所选时段"
+                )
+                yield (
+                    f"[REPLY][预约机器人]已记录查询时间：{date_label}{time_label}。\n\n"
+                    "不同服务所需时长不同，请问您想查询男士短发、女士剪发、染发、烫发还是其他服务？"
+                )
+            else:
+                yield f"[REPLY][预约机器人]{' '.join(prompts[item] for item in missing)}"
             return
 
         target_date = datetime.strptime(appointment_history["availability_date"], "%Y-%m-%d").date()
@@ -624,6 +660,26 @@ class AppointmentProcessor:
         )
         if target_date < now.date():
             yield "[REPLY][预约机器人]该日期已经过去，请选择今天之后的预约日期。"
+            return
+        service = SERVICE_CATALOG[appointment_history["service_key"]]
+        if exact_time:
+            exact_start = datetime.combine(target_date, exact_time, tzinfo=time_config.BEIJING_TZ)
+            exact_end = exact_start + timedelta(minutes=service.standard_duration)
+            if exact_start <= now:
+                self._clear_availability_time(appointment_history)
+                self._clear_requested_time(appointment_history)
+                yield "[REPLY][预约机器人]该预约时间已经过去，请重新选择具体时间。已保留预约日期和服务项目。"
+                return
+            if not self.appointment_database.appointment_service.is_within_business_hours(exact_start, exact_end):
+                start_hour, end_hour = time_config.get_business_hours()
+                self._clear_availability_time(appointment_history)
+                self._clear_requested_time(appointment_history)
+                yield f"[REPLY][预约机器人]{self.message_builder.create_outside_business_hours_message(start_hour, end_hour)}"
+                return
+        range_end_at = datetime.combine(target_date, range_end, tzinfo=time_config.BEIJING_TZ)
+        if target_date == now.date() and range_end_at <= now:
+            period = appointment_history.get("availability_period_label") or "所选时段"
+            yield f"[REPLY][预约机器人]今天{period}的可预约时间已经过去，是否查询今晚或明天{period}？"
             return
 
         search_request = AvailabilitySearchRequest(
@@ -663,9 +719,14 @@ class AppointmentProcessor:
                     f"{appointment_history['duration']}空档的发型师。请调整日期、时间或偏好。"
                 )
             else:
+                time_label = (
+                    appointment_history.get("availability_exact_time")
+                    or appointment_history.get("availability_period_label")
+                    or "所选时段"
+                )
                 yield (
                     f"[REPLY][预约机器人]{target_date.isoformat()}"
-                    f"{appointment_history.get('availability_period_label') or '所选时段'}"
+                    f"{time_label}"
                     f"暂时没有完整的{appointment_history['duration']}空档，请调整时间。"
                 )
             return
@@ -745,6 +806,12 @@ class AppointmentProcessor:
             appointment_history["availability_flow_complete"] = True
             yield "[REPLY][预约机器人]该发型师信息已不可用，请重新查询。"
             return
+        profile = structured_stylist_profile(stylist)
+        if option.get("service_key") not in profile.get("supported_services", []):
+            self.clear_pending_availability(appointment_history)
+            appointment_history["availability_flow_complete"] = True
+            yield "[REPLY][预约机器人]该发型师当前不支持所选服务，请重新查询其他候选。"
+            return
 
         appointment_history.update({
             "start_time": datetime.fromisoformat(option["start_time"]).strftime("%Y-%m-%d %H:%M"),
@@ -773,6 +840,16 @@ class AppointmentProcessor:
 
     @staticmethod
     def _match_availability_options(user_input: str, options: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        stylist_ordinal_match = re.fullmatch(r"第([一二三四五])位(?:老师|发型师|理发师)", user_input)
+        if stylist_ordinal_match:
+            ordinal = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5}[stylist_ordinal_match.group(1)]
+            stylist_names = list(dict.fromkeys(
+                item.get("stylist_name") for item in options if item.get("stylist_name")
+            ))
+            if ordinal <= len(stylist_names):
+                return [item for item in options if item.get("stylist_name") == stylist_names[ordinal - 1]]
+            return []
+
         ordinal_map = {"第一个": 1, "第一": 1, "第二个": 2, "第二": 2, "第三个": 3, "第三": 3}
         option_number = ordinal_map.get(user_input)
         if option_number is None:

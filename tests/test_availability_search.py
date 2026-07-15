@@ -37,6 +37,14 @@ FIXED_NOW = datetime(2026, 7, 15, 9, 0, tzinfo=time_config.BEIJING_TZ)
         "周五下午想染冷棕色，谁有时间",
         "找一位会做显白发色的老师",
         "明天下午找个有空的老师",
+        "今天下午哪些理发师有空？",
+        "今天下午哪些老师有空？",
+        "今天下午谁有空？",
+        "今天下午有空的理发师有哪些？",
+        "今天下午哪个发型师有时间？",
+        "帮我查一下今天下午的空闲理发师",
+        "明天下午谁能做男士短发？",
+        "周五晚上有哪些老师可以剪发？",
     ],
 )
 def test_implicit_booking_messages_route_to_appointment(message):
@@ -52,6 +60,11 @@ def test_implicit_booking_messages_route_to_appointment(message):
         "冷棕色一般能保持多久？",
         "门店几点营业？",
         "染发有哪些注意事项？",
+        "理发师平时主要负责什么？",
+        "怎么成为理发师？",
+        "男士短发适合什么脸型？",
+        "男士短发怎么打理？",
+        "门店有哪些理发师？",
     ],
 )
 def test_consultation_questions_stay_in_consultation(message):
@@ -80,7 +93,7 @@ def test_backend_overrides_frontend_consultation_for_availability(monkeypatch):
         return "".join([
             token
             async for token in chat_handler.ProcessUserInput_stream(
-                "明天下午找擅长冷棕色的老师",
+                "今天下午哪些理发师有空？",
                 session_id="availability-session",
                 route="consultation",
             )
@@ -135,6 +148,7 @@ def build_availability_stack(tmp_path):
         "available": appointment_service.add_stylist("周晴", "女", "染发调色、冷棕色、显白发色"),
         "busy": appointment_service.add_stylist("顾然", "女", "染发调色、冷棕色"),
         "unsupported": appointment_service.add_stylist("林浩", "男", "男士短发、渐变推剪"),
+        "second_short": appointment_service.add_stylist("张伟", "男", "男士短发、商务短发"),
         "other_color": appointment_service.add_stylist("苏敏", "女", "染发调色、暖棕色"),
     }
     busy_start = datetime(2026, 7, 16, 12, tzinfo=time_config.BEIJING_TZ)
@@ -197,6 +211,24 @@ def test_color_duration_requires_complete_150_minute_slot(tmp_path):
     )
 
     assert options == []
+
+
+def test_exact_time_returns_all_available_matching_stylists(tmp_path):
+    appointment_service, _, _ = build_availability_stack(tmp_path)
+    request = AvailabilitySearchRequest(
+        target_date=date(2026, 7, 16),
+        range_start=time(14),
+        range_end=time(14),
+        exact_time=time(14),
+        service_key="mens_short_cut",
+    )
+
+    options = AvailabilityService(appointment_service).search_available_stylists(
+        request, now=FIXED_NOW
+    )
+
+    assert {item.stylist_name for item in options} == {"林浩", "张伟"}
+    assert all(item.start_time.time() == time(14) for item in options)
 
 
 def build_agent(tmp_path):
@@ -291,6 +323,8 @@ def test_candidate_selection_forms_and_ambiguity(tmp_path):
     assert matcher("周晴14点", options)[0]["option_id"] == 1
     assert matcher("林浩", options)[0]["option_id"] == 3
     assert len(matcher("周晴", options)) == 2
+    assert len(matcher("就周晴", options)) == 2
+    assert matcher("第二位老师", options)[0]["option_id"] == 3
 
 
 def test_cancel_clears_candidates_without_save_or_weather(monkeypatch, tmp_path):
@@ -337,13 +371,73 @@ def test_missing_service_and_date_continue_in_booking_flow(monkeypatch, tmp_path
     monkeypatch.setattr(time_config, "now", lambda: FIXED_NOW)
     agent, _ = build_agent(tmp_path)
     missing_service = asyncio.run(run_agent(agent, "明天下午找个有空的老师"))
-    assert "想预约剪发、染发、烫发还是其他服务" in missing_service
+    assert "已记录查询时间：明天下午" in missing_service
+    assert "不同服务所需时长不同" in missing_service
 
     agent._reset_state_after_appointment()
     missing_date = asyncio.run(run_agent(agent, "找一位会做显白发色的老师"))
     assert "希望预约哪一天" in missing_date
     assert agent.appointment_history["project"] == "染发"
     assert agent.appointment_history["specialty"] == "显白发色"
+
+
+def test_missing_service_search_continues_with_persisted_time_range(monkeypatch, tmp_path):
+    monkeypatch.setattr(time_config, "now", lambda: FIXED_NOW)
+    agent, appointment_service = build_agent(tmp_path)
+
+    class ForbiddenWeather:
+        async def get_weather_context(self, appointment_time=None):
+            raise AssertionError("weather must not run while only searching availability")
+
+    agent.appointment_processor.weather_tool = ForbiddenWeather()
+    first = asyncio.run(run_agent(agent, "今天下午哪些理发师有空？"))
+
+    assert "已记录查询时间：今天下午" in first
+    assert agent.appointment_history["availability_search_active"] is True
+    assert agent.appointment_history["availability_date"] == "2026-07-15"
+    assert agent.appointment_history["availability_range_start"] == "12:00"
+    assert agent.appointment_history["availability_range_end"] == "18:00"
+
+    second = asyncio.run(run_agent(agent, "男士短发"))
+    assert "真实可预约选项" in second
+    assert "林浩" in second
+    assert "张伟" in second
+    assert "偏好：男士短发" not in second
+    assert agent.appointment_history["duration"] == "45分钟"
+    assert agent.appointment_history["price"] == 88
+    assert agent.appointment_history["awaiting_slot_selection"] is True
+    assert all(
+        appointment_service.get_stylist_schedules(stylist["id"], date(2026, 7, 15)) == []
+        for stylist in appointment_service.get_all_stylists()
+    )
+
+
+def test_today_availability_filters_past_slots_and_reports_elapsed_period(tmp_path):
+    appointment_service, _, _ = build_availability_stack(tmp_path)
+    request = AvailabilitySearchRequest(
+        target_date=date(2026, 7, 15),
+        range_start=time(12),
+        range_end=time(18),
+        service_key="mens_short_cut",
+    )
+    now = datetime(2026, 7, 15, 15, 20, tzinfo=time_config.BEIJING_TZ)
+
+    options = AvailabilityService(appointment_service).search_available_stylists(request, now=now)
+
+    assert options
+    assert all(item.start_time > now for item in options)
+
+    elapsed_path = tmp_path / "elapsed"
+    elapsed_path.mkdir()
+    agent, _ = build_agent(elapsed_path)
+    agent.appointment_processor.weather_tool = SimpleNamespace()
+    reply = asyncio.run(agent.appointment_processor.handle_availability_search(
+        parse_availability_request("今天下午谁有空做男士短发", now=now),
+        agent.appointment_history,
+        agent.session_id,
+        now=datetime(2026, 7, 15, 19, 0, tzinfo=time_config.BEIJING_TZ),
+    ).__anext__())
+    assert "今天下午的可预约时间已经过去" in reply
 
 
 def test_past_availability_date_is_rejected(monkeypatch, tmp_path):
@@ -381,3 +475,25 @@ def test_pending_candidates_are_session_scoped():
     )
     assert chat_handler.route_user_message("第一个", session_a) == "appointment"
     assert chat_handler.route_user_message("第一个", session_b) != "appointment"
+
+
+def test_active_availability_search_is_session_scoped_for_follow_up_service():
+    session_a = chat_handler.ChatSession(
+        session_id="a",
+        task_agent=SimpleNamespace(
+            appointment_agent=SimpleNamespace(
+                appointment_history={"availability_search_active": True}
+            ),
+            state_manager=SimpleNamespace(get_current_state=lambda: StateEnum.CLASSIFY),
+        ),
+    )
+    session_b = chat_handler.ChatSession(
+        session_id="b",
+        task_agent=SimpleNamespace(
+            appointment_agent=SimpleNamespace(appointment_history={}),
+            state_manager=SimpleNamespace(get_current_state=lambda: StateEnum.CLASSIFY),
+        ),
+    )
+
+    assert chat_handler.route_user_message("男士短发", session_a) == "appointment"
+    assert chat_handler.route_user_message("男士短发", session_b) != "appointment"

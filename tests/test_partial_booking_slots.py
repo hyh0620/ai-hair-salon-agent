@@ -44,6 +44,8 @@ class FakeBookingParser:
             payload["start_time"] = "2026-07-17 00:00"
         elif "下午" in user_input:
             payload["start_time"] = "2026-07-17 12:00"
+        if "林浩" in user_input:
+            payload["stylist_name"] = "林浩"
         yield json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
@@ -91,7 +93,7 @@ def schedules_for(appointment_service, stylist_id):
     return appointment_service.get_stylist_schedules(stylist_id, date(2026, 7, 17))
 
 
-def test_date_then_service_then_exact_time_saves_only_on_third_turn(monkeypatch, tmp_path):
+def test_date_then_service_then_exact_time_requires_selection_before_save(monkeypatch, tmp_path):
     monkeypatch.setattr(time_config, "now", lambda: FIXED_NOW)
     agent, appointment_service, stylist_id = build_partial_booking_agent(tmp_path)
     finder_calls = []
@@ -136,9 +138,23 @@ def test_date_then_service_then_exact_time_saves_only_on_third_turn(monkeypatch,
     assert weather_calls == []
 
     third = asyncio.run(ask(agent, "下午两点"))
-    appointment_id = re.search(r"预约编号：(\d+)", third)
+    assert "真实可预约选项" in third
+    assert "林浩：14:00" in third
+    assert agent.appointment_history["awaiting_slot_selection"] is True
+    assert finder_calls == []
+    assert schedules_for(appointment_service, stylist_id) == []
+    assert weather_calls == []
+
+    selection = asyncio.run(ask(agent, "第一个"))
+    assert "请回复“确认”或“取消”" in selection
+    assert agent.appointment_history["awaiting_slot_selection"] is False
+    assert agent.appointment_history["awaiting_slot_confirmation"] is True
+    assert schedules_for(appointment_service, stylist_id) == []
+    assert weather_calls == []
+
+    confirmation = asyncio.run(ask(agent, "确认"))
+    appointment_id = re.search(r"预约编号：(\d+)", confirmation)
     assert appointment_id
-    assert finder_calls == ["find"]
     persisted = schedules_for(appointment_service, stylist_id)
     assert len(persisted) == 1
     assert persisted[0]["start_time"].strftime("%Y-%m-%d %H:%M") == "2026-07-17 14:00"
@@ -165,7 +181,11 @@ def test_service_then_date_then_time_merges_slots(monkeypatch, tmp_path):
 
     agent.appointment_processor.weather_tool = OmittedWeather()
     third = asyncio.run(ask(agent, "下午三点"))
-    assert "预约成功" in third
+    assert "真实可预约选项" in third
+    assert schedules_for(appointment_service, stylist_id) == []
+    asyncio.run(ask(agent, "第一个"))
+    confirmation = asyncio.run(ask(agent, "确认"))
+    assert "预约成功" in confirmation
     persisted = schedules_for(appointment_service, stylist_id)
     assert persisted[0]["start_time"].strftime("%H:%M") == "15:00"
 
@@ -187,7 +207,7 @@ def test_date_range_then_service_enters_availability_without_default_time(monkey
     assert schedules_for(appointment_service, stylist_id) == []
 
 
-def test_exact_time_then_service_creates_14_clock_booking(monkeypatch, tmp_path):
+def test_exact_time_then_service_requires_candidate_selection(monkeypatch, tmp_path):
     monkeypatch.setattr(time_config, "now", lambda: FIXED_NOW)
     agent, appointment_service, stylist_id = build_partial_booking_agent(tmp_path)
 
@@ -200,8 +220,30 @@ def test_exact_time_then_service_creates_14_clock_booking(monkeypatch, tmp_path)
     assert agent.appointment_history["requested_exact_time"] == "14:00"
     assert "服务项目" in first
     second = asyncio.run(ask(agent, "男士短发"))
-    assert "预约成功" in second
+    assert "真实可预约选项" in second
+    assert schedules_for(appointment_service, stylist_id) == []
+    asyncio.run(ask(agent, "第一个"))
+    confirmation = asyncio.run(ask(agent, "确认"))
+    assert "预约成功" in confirmation
     assert schedules_for(appointment_service, stylist_id)[0]["start_time"].strftime("%H:%M") == "14:00"
+
+
+def test_explicit_stylist_keeps_direct_booking_flow(monkeypatch, tmp_path):
+    monkeypatch.setattr(time_config, "now", lambda: FIXED_NOW)
+    agent, appointment_service, stylist_id = build_partial_booking_agent(tmp_path)
+
+    class OmittedWeather:
+        async def get_weather_context(self, appointment_time=None):
+            return WeatherContextResult(status="omitted", reason="disabled")
+
+    agent.appointment_processor.weather_tool = OmittedWeather()
+    reply = asyncio.run(ask(agent, "预约林浩明天下午四点做男士短发"))
+
+    assert "预约成功" in reply
+    assert "真实可预约选项" not in reply
+    schedules = schedules_for(appointment_service, stylist_id)
+    assert len(schedules) == 1
+    assert schedules[0]["start_time"].strftime("%H:%M") == "16:00"
 
 
 def test_explicit_midnight_is_rejected_before_stylist_lookup_and_slots_are_kept(monkeypatch, tmp_path):
