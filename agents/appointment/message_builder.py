@@ -113,3 +113,54 @@ class MessageBuilder:
 
     def create_save_failure_message(self) -> str:
         return "\n机器人：抱歉，预约保存失败，可能是时间冲突或不在营业时间内，请更换时间后重试。\n"
+
+    def create_availability_options_message(
+        self,
+        options: List[Dict[str, Any]],
+        appointment_history: Dict[str, Any],
+    ) -> str:
+        target_date = appointment_history.get("availability_date", "")
+        period = appointment_history.get("availability_period_label") or appointment_history.get("availability_time_text", "")
+        service = appointment_history.get("project", "服务")
+        specialty = appointment_history.get("specialty")
+        duration = appointment_history.get("duration", "")
+        price = appointment_history.get("price")
+        preference_line = f"\n偏好：{specialty}" if specialty else ""
+        lines = [
+            "\n机器人：已识别您的需求：",
+            f"日期：{target_date}",
+            f"时间：{period}",
+            f"服务：{service}{preference_line}",
+            "\n查询到以下真实可预约选项：",
+        ]
+        for option in options:
+            match = "、".join(option.get("specialty_matches") or []) or "服务匹配"
+            start = datetime.fromisoformat(option["start_time"])
+            lines.append(
+                f"{option['option_id']}. {option['stylist_name']}：{start:%H:%M}"
+                f"（专长：{match}；{option['duration_minutes']}分钟；{option['price']}元）"
+            )
+        lines.extend([
+            f"\n{service}标准时长{duration}，价格{price}元。",
+            "您可以回复“第一个”“选1”或“发型师姓名+时间”。",
+            "",
+        ])
+        return "\n".join(lines)
+
+    @staticmethod
+    def create_availability_confirmation_message(option: Dict[str, Any]) -> str:
+        start = datetime.fromisoformat(option["start_time"])
+        return (
+            f"\n机器人：确认为您预约{option['stylist_name']}，"
+            f"{start.year}年{start.month}月{start.day}日{start:%H:%M}，"
+            f"{option['service_name']}，{option['duration_minutes']}分钟，{option['price']}元吗？"
+            "请回复“确认”或“取消”。\n"
+        )
+
+    @staticmethod
+    def create_ambiguous_option_message(options: List[Dict[str, Any]]) -> str:
+        labels = [
+            f"{datetime.fromisoformat(item['start_time']):%H:%M}（选{item['option_id']}）"
+            for item in options
+        ]
+        return f"\n机器人：该发型师有多个可预约时间：{'、'.join(labels)}。请回复具体时间或序号。\n"

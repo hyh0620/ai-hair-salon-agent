@@ -94,6 +94,28 @@ When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process t
 6. Run `eval/mcp_runtime_failure_e2e.py` and show consultation 503 while booking remains available.
 7. Optional Weather Context Tool defaults to `WEATHER_ENABLED=true` with Open-Meteo and the configured Shanghai coordinates. It requires no API Key, runs only after a booking is saved, and is not part of MCP or RAG.
 
+## Preference-Based Availability Demo / 模糊偏好排班演示
+
+在首页使用同一个浏览器 session 依次输入：
+
+```text
+明天下午找擅长冷棕色的老师
+第一个
+确认
+```
+
+第一步应进入 Booking，而不是 Consultation。系统把“明天”“下午”“冷棕色”规范化为日期、时间范围、染发服务和专长标签，并用结构化发型师资料与 SQLite 排班计算候选；此时不写数据库，也不调用 MCP 或天气。
+
+选择候选后系统请求最终确认。确认时再次检查档期，只有 SQLite 保存成功并产生真实 `appointment_id` 后，才可追加上海预约时段天气。候选生成后若档期被占用，确认必须失败且不调用天气。
+
+对照问题：
+
+```text
+冷棕色适合什么肤色？
+```
+
+该问题应进入 Consultation 并显示 Citations。LLM 负责理解约束和组织回复；候选排序、价格、时长、排班与预约结果由确定性后端负责。
+
 ## Suggested Questions / 建议演示问题
 
 - `染发前后有什么注意事项？`
@@ -101,6 +123,7 @@ When MCP is enabled, FastAPI launches MCP Knowledge Service as a child process t
 - `临时不能到店，改约规则是什么？`
 - `门店几点营业？`
 - `男士短发多少钱，需要多久？`
+- `明天下午找擅长冷棕色的老师`
 
 ## What To Claim / 可以说明
 

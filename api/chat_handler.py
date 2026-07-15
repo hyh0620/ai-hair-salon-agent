@@ -13,6 +13,12 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from agents.appointment_agent import AppointmentAgent
+from agents.appointment.availability_parser import (
+    CONSULTATION,
+    CREATE_BOOKING,
+    SEARCH_AVAILABILITY,
+    detect_message_intent,
+)
 from agents.consultant_agent import ConsultantAgent
 from agents.task_classification_agent import TaskClassificationAgent
 
@@ -113,6 +119,14 @@ def has_pending_appointment_confirmation(session: Optional[ChatSession]) -> bool
     return bool(history.get("awaiting_confirmation"))
 
 
+def has_pending_availability_interaction(session: Optional[ChatSession]) -> bool:
+    if session is None:
+        return False
+    appointment_agent = getattr(session.task_agent, "appointment_agent", None)
+    history = getattr(appointment_agent, "appointment_history", {}) or {}
+    return bool(history.get("awaiting_slot_selection") or history.get("awaiting_slot_confirmation"))
+
+
 def has_active_appointment_flow(session: Optional[ChatSession]) -> bool:
     if session is None:
         return False
@@ -134,6 +148,8 @@ def is_confirmation_response(user_input: str) -> bool:
 
 def route_user_message(user_input: str, session: Optional[ChatSession] = None) -> str:
     """Select a route without mutating Agent state."""
+    if has_pending_availability_interaction(session):
+        return "appointment"
     pending_confirmation = has_pending_appointment_confirmation(session)
     if pending_confirmation:
         if is_confirmation_response(user_input):
@@ -141,20 +157,12 @@ def route_user_message(user_input: str, session: Optional[ChatSession] = None) -
     elif has_active_appointment_flow(session):
         return "appointment"
 
-    normalized = _normalized_message(user_input)
-    appointment_terms = (
-        "预约",
-        "预订",
-        "我想约",
-        "想约",
-        "我要约",
-        "帮我约",
-        "约一下",
-        "约一个",
-        "安排",
-        "指定发型师",
-    )
-    return "appointment" if any(term in normalized for term in appointment_terms) else "consultation"
+    intent = detect_message_intent(user_input)
+    if intent in {CREATE_BOOKING, SEARCH_AVAILABILITY}:
+        return "appointment"
+    if intent == CONSULTATION:
+        return "consultation"
+    return "agent"
 
 
 async def ProcessUserInput_stream(

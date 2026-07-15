@@ -7,8 +7,9 @@
 import os
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Dict, Any, AsyncGenerator, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .input_parser import InputParser
@@ -17,7 +18,10 @@ from .message_builder import MessageBuilder
 from .appointment_database import AppointmentDatabase
 from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
-from services.service_catalog import normalize_service
+from agents.appointment.availability_parser import ParsedAvailabilityRequest, parse_selection_time
+from config.time_config import time_config
+from services.availability_service import AvailabilitySearchRequest, AvailabilityService
+from services.service_catalog import SERVICE_CATALOG, normalize_service
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +335,11 @@ class AppointmentProcessor:
         self.appointment_database = appointment_database
         self.llm = llm
         self.weather_tool = WeatherTool()
+        self.availability_service = (
+            AvailabilityService(appointment_database.appointment_service)
+            if appointment_database is not None
+            else None
+        )
     
     def update_history_from_data(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
         """从解析数据更新预约历史"""
@@ -401,6 +410,258 @@ class AppointmentProcessor:
             "recommendation_declined",
         ):
             appointment_history.pop(key, None)
+
+    @staticmethod
+    def clear_pending_availability(appointment_history: Dict[str, Any]) -> None:
+        for key in (
+            "availability_search_active",
+            "awaiting_slot_selection",
+            "pending_availability_options",
+            "awaiting_slot_confirmation",
+            "selected_availability_option",
+            "availability_date",
+            "availability_range_start",
+            "availability_range_end",
+            "availability_exact_time",
+            "availability_period_label",
+            "availability_time_text",
+            "specialty",
+        ):
+            appointment_history.pop(key, None)
+
+    async def handle_availability_search(
+        self,
+        parsed: ParsedAvailabilityRequest,
+        appointment_history: Dict[str, Any],
+        session_id: str,
+        now: Optional[datetime] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Merge fuzzy slots, query persisted schedules, and retain structured candidates."""
+        now = now or time_config.now()
+        appointment_history["availability_search_active"] = True
+        if parsed.target_date:
+            appointment_history["availability_date"] = parsed.target_date.isoformat()
+        if parsed.range_start:
+            appointment_history["availability_range_start"] = parsed.range_start.strftime("%H:%M")
+        if parsed.range_end:
+            appointment_history["availability_range_end"] = parsed.range_end.strftime("%H:%M")
+        if parsed.exact_time:
+            appointment_history["availability_exact_time"] = parsed.exact_time.strftime("%H:%M")
+        if parsed.period_label:
+            appointment_history["availability_period_label"] = parsed.period_label
+        if parsed.service_key:
+            service = SERVICE_CATALOG[parsed.service_key]
+            appointment_history.update({
+                "service_key": service.key,
+                "project": service.name,
+                "duration": f"{service.standard_duration}分钟",
+                "price": service.standard_price,
+            })
+        if parsed.specialty:
+            appointment_history["specialty"] = parsed.specialty
+            appointment_history["preference"] = parsed.specialty
+        if parsed.stylist_name:
+            appointment_history["stylist_name"] = parsed.stylist_name
+
+        missing = []
+        if not appointment_history.get("service_key"):
+            missing.append("service")
+        if not appointment_history.get("availability_date"):
+            missing.append("date")
+        if not appointment_history.get("availability_range_start") and not appointment_history.get("availability_exact_time"):
+            missing.append("time")
+        if missing:
+            prompts = {
+                "service": "您想预约剪发、染发、烫发还是其他服务？",
+                "date": "请告诉我希望预约哪一天。",
+                "time": "请告诉我希望预约上午、下午、晚上或具体几点。",
+            }
+            logger.info(
+                "availability_search_incomplete session_id=%s service=%s specialty=%s missing=%s",
+                session_id,
+                appointment_history.get("service_key"),
+                appointment_history.get("specialty"),
+                ",".join(missing),
+            )
+            yield f"[REPLY][预约机器人]{' '.join(prompts[item] for item in missing)}"
+            return
+
+        target_date = datetime.strptime(appointment_history["availability_date"], "%Y-%m-%d").date()
+        exact_text = appointment_history.get("availability_exact_time")
+        exact_time = time.fromisoformat(exact_text) if exact_text else None
+        range_start = time.fromisoformat(
+            appointment_history.get("availability_range_start") or exact_text
+        )
+        range_end = time.fromisoformat(
+            appointment_history.get("availability_range_end") or exact_text
+        )
+        if target_date < now.date():
+            yield "[REPLY][预约机器人]该日期已经过去，请选择今天之后的预约日期。"
+            return
+
+        search_request = AvailabilitySearchRequest(
+            target_date=target_date,
+            range_start=range_start,
+            range_end=range_end,
+            exact_time=exact_time,
+            service_key=appointment_history["service_key"],
+            specialty=appointment_history.get("specialty"),
+            stylist_name=appointment_history.get("stylist_name"),
+        )
+        matching_stylists = self.availability_service.matching_stylists(search_request)
+        options = self.availability_service.search_available_stylists(search_request, now=now)
+        logger.info(
+            "availability_search session_id=%s intent=search_availability date=%s time_range=%s-%s "
+            "service=%s specialty=%s candidate_count=%s",
+            session_id,
+            target_date,
+            range_start,
+            range_end,
+            appointment_history.get("service_key"),
+            appointment_history.get("specialty"),
+            len(options),
+        )
+        if not options:
+            specialty = appointment_history.get("specialty")
+            if specialty and not matching_stylists:
+                yield (
+                    f"[REPLY][预约机器人]当前发型师资料中没有标记为擅长“{specialty}”"
+                    "且支持该服务的老师。您可以调整偏好后重新查询。"
+                )
+            elif specialty:
+                yield (
+                    f"[REPLY][预约机器人]{target_date.isoformat()}"
+                    f"{appointment_history.get('availability_period_label') or '所选时段'}，"
+                    f"当前没有同时匹配“{specialty}”专长且具备完整"
+                    f"{appointment_history['duration']}空档的发型师。请调整日期、时间或偏好。"
+                )
+            else:
+                yield (
+                    f"[REPLY][预约机器人]{target_date.isoformat()}"
+                    f"{appointment_history.get('availability_period_label') or '所选时段'}"
+                    f"暂时没有完整的{appointment_history['duration']}空档，请调整时间。"
+                )
+            return
+
+        session_options = [item.to_session_dict() for item in options]
+        appointment_history["pending_availability_options"] = session_options
+        appointment_history["awaiting_slot_selection"] = True
+        appointment_history["availability_time_text"] = (
+            appointment_history.get("availability_period_label")
+            or appointment_history.get("availability_exact_time")
+        )
+        yield f"[REPLY][预约机器人]{self.message_builder.create_availability_options_message(session_options, appointment_history)}"
+
+    async def handle_availability_selection(
+        self,
+        user_input: str,
+        appointment_history: Dict[str, Any],
+        session_id: str,
+    ) -> AsyncGenerator[str, None]:
+        normalized = str(user_input or "").strip().lower().rstrip("，。！？,.!?")
+        if normalized == "换一批":
+            yield "[REPLY][预约机器人]当前匹配候选已全部展示。请调整日期、时间或偏好后重新查询。"
+            return
+        if normalized in NEGATIVE_CONFIRMATIONS or normalized == "都不合适":
+            self.clear_pending_availability(appointment_history)
+            appointment_history["availability_flow_complete"] = True
+            yield "[REPLY][预约机器人]已取消本次候选选择。您可以告诉我新的日期、时间或服务偏好。"
+            return
+
+        options = appointment_history.get("pending_availability_options") or []
+        matches = self._match_availability_options(normalized, options)
+        if not matches:
+            yield "[REPLY][预约机器人]没有匹配到该选项，请回复候选序号，或使用“发型师姓名+时间”。"
+            return
+        if len(matches) > 1:
+            yield f"[REPLY][预约机器人]{self.message_builder.create_ambiguous_option_message(matches)}"
+            return
+
+        option = matches[0]
+        appointment_history["selected_availability_option"] = option
+        appointment_history["awaiting_slot_selection"] = False
+        appointment_history["awaiting_slot_confirmation"] = True
+        logger.info(
+            "availability_option_selected session_id=%s option_id=%s stylist_id=%s",
+            session_id,
+            option["option_id"],
+            option["stylist_id"],
+        )
+        yield f"[REPLY][预约机器人]{self.message_builder.create_availability_confirmation_message(option)}"
+
+    async def handle_availability_confirmation(
+        self,
+        user_input: str,
+        appointment_history: Dict[str, Any],
+        session_id: str,
+    ) -> AsyncGenerator[str, None]:
+        normalized = str(user_input or "").strip().lower().rstrip("，。！？,.!?")
+        if normalized in NEGATIVE_CONFIRMATIONS:
+            self.clear_pending_availability(appointment_history)
+            appointment_history["availability_flow_complete"] = True
+            yield "[REPLY][预约机器人]已取消本次预约，没有写入排班。"
+            return
+        if normalized not in POSITIVE_CONFIRMATIONS:
+            yield "[REPLY][预约机器人]请回复“确认”完成预约，或回复“取消”。"
+            return
+
+        option = appointment_history.get("selected_availability_option")
+        if not option:
+            self.clear_pending_availability(appointment_history)
+            appointment_history["availability_flow_complete"] = True
+            yield "[REPLY][预约机器人]候选状态已失效，请重新查询可预约时间。"
+            return
+
+        stylist = self.appointment_database.appointment_service.get_stylist_by_id(option["stylist_id"])
+        if not stylist:
+            self.clear_pending_availability(appointment_history)
+            appointment_history["availability_flow_complete"] = True
+            yield "[REPLY][预约机器人]该发型师信息已不可用，请重新查询。"
+            return
+
+        appointment_history.update({
+            "start_time": datetime.fromisoformat(option["start_time"]).strftime("%Y-%m-%d %H:%M"),
+            "project": option["service_name"],
+            "service_key": option["service_key"],
+            "duration": f"{option['duration_minutes']}分钟",
+            "price": option["price"],
+            "stylist_name": option["stylist_name"],
+        })
+        appointment_history["awaiting_slot_confirmation"] = False
+        reply = await self._process_successful_appointment(stylist, appointment_history, session_id)
+        success = bool(appointment_history.get("appointment_id"))
+        logger.info(
+            "availability_booking session_id=%s option_id=%s booking_status=%s reason=%s",
+            session_id,
+            option["option_id"],
+            "confirmed" if success else "failed",
+            "" if success else "slot_conflict_or_persistence_error",
+        )
+        self.clear_pending_availability(appointment_history)
+        appointment_history["availability_flow_complete"] = True
+        if not success:
+            yield "[REPLY][预约机器人]该候选档期刚刚变得不可用，没有创建预约。请重新查询其他时间。"
+            return
+        yield f"[REPLY][预约机器人]{reply}"
+
+    @staticmethod
+    def _match_availability_options(user_input: str, options: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        ordinal_map = {"第一个": 1, "第一": 1, "第二个": 2, "第二": 2, "第三个": 3, "第三": 3}
+        option_number = ordinal_map.get(user_input)
+        if option_number is None:
+            number_match = re.fullmatch(r"(?:选|第)?\s*(\d+)(?:个)?", user_input)
+            option_number = int(number_match.group(1)) if number_match else None
+        if option_number is not None:
+            return [item for item in options if item.get("option_id") == option_number]
+
+        matches = [item for item in options if item.get("stylist_name") and item["stylist_name"] in user_input]
+        selected_time = parse_selection_time(user_input)
+        if selected_time:
+            matches = [
+                item for item in (matches or options)
+                if datetime.fromisoformat(item["start_time"]).time().replace(second=0, microsecond=0) == selected_time
+            ]
+        return matches
 
     def _handle_recommendation_response(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
         """处理用户对推荐发型师的回应"""

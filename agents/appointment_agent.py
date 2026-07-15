@@ -3,6 +3,13 @@ import uuid
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from config.model_provider import create_chat_model
 from .appointment.appointment_database import AppointmentDatabase
+from .appointment.availability_parser import (
+    CONSULTATION,
+    CREATE_BOOKING,
+    SEARCH_AVAILABILITY,
+    detect_message_intent,
+    parse_availability_request,
+)
 from .appointment.appointment_processor import AppointmentProcessor
 from .appointment.input_parser import InputParser
 from .appointment.message_builder import MessageBuilder
@@ -91,6 +98,57 @@ class AppointmentAgent:
             user_input = input("用户：")
         
         try:
+            detected_intent = detect_message_intent(user_input)
+            if self.appointment_history.get("awaiting_slot_confirmation"):
+                if detected_intent in {CREATE_BOOKING, SEARCH_AVAILABILITY}:
+                    self.appointment_processor.clear_pending_availability(self.appointment_history)
+                else:
+                    async for token in self.appointment_processor.handle_availability_confirmation(
+                        user_input, self.appointment_history, self.session_id
+                    ):
+                        yield token
+                    if self.appointment_history.get("availability_flow_complete"):
+                        self._reset_state_after_appointment()
+                    return
+
+            if self.appointment_history.get("awaiting_slot_selection"):
+                if detected_intent in {CREATE_BOOKING, SEARCH_AVAILABILITY}:
+                    self.appointment_processor.clear_pending_availability(self.appointment_history)
+                else:
+                    async for token in self.appointment_processor.handle_availability_selection(
+                        user_input, self.appointment_history, self.session_id
+                    ):
+                        yield token
+                    if self.appointment_history.get("availability_flow_complete"):
+                        self._reset_state_after_appointment()
+                    return
+
+            if (
+                detected_intent == CREATE_BOOKING
+                and self.appointment_history.get("availability_search_active")
+            ):
+                self.appointment_processor.clear_pending_availability(self.appointment_history)
+
+            if detected_intent == CONSULTATION and self.appointment_history.get("availability_search_active"):
+                normalized = str(user_input or "").strip().rstrip("，。！？,.!?")
+                if normalized in {"取消", "不用了", "都不合适"}:
+                    self.appointment_processor.clear_pending_availability(self.appointment_history)
+                    self._reset_state_after_appointment()
+                    yield "[REPLY][预约机器人]已取消本次可用性查询。"
+                    return
+
+            if detected_intent == SEARCH_AVAILABILITY or self.appointment_history.get("availability_search_active"):
+                stylist_names = [
+                    item["name"]
+                    for item in self.appointment_database.appointment_service.get_all_stylists()
+                ]
+                parsed = parse_availability_request(user_input, stylist_names=stylist_names)
+                async for token in self.appointment_processor.handle_availability_search(
+                    parsed, self.appointment_history, self.session_id
+                ):
+                    yield token
+                return
+
             # Pending confirmation is deterministic and should not depend on LLM slot backfilling.
             if (
                 self.appointment_history.get("awaiting_confirmation")

@@ -27,6 +27,7 @@
 | --- | --- |
 | Agent 任务路由 | 识别预约、咨询和其他请求；负责对话、信息提取和缺失槽位追问。 |
 | 确定性预约 | `SERVICE_CATALOG` 提供标准价格与标准时长；`AppointmentService` 与 SQLite 处理营业时间、发型师排班、可用性、保存和冲突校验。 |
+| 模糊偏好与真实排班 | 将“明天下午找擅长冷棕色的老师”等请求识别为 `search_availability`，规范化日期、时间范围、服务和专长，再基于 SQLite 忙碌时段生成稳定候选。 |
 | MCP 知识检索 | `MCPKnowledgeGateway` 是主项目中的 MCP Client 封装，使用官方 MCP Python SDK 连接独立 MCP Knowledge Service。 |
 | 混合检索与引用 | 外部知识服务组合向量检索（Dense Retrieval）、BM25 和倒数排名融合（Reciprocal Rank Fusion, RRF），返回 Citations。 |
 | 故障隔离 | MCP 运行时不可用时，Consultation 返回 HTTP 503；Booking 继续使用本地确定性后端。 |
@@ -55,6 +56,16 @@ User Request
 ```
 
 Agent / LLM 可以提取 `project`、`start_time`、`duration` 和可选偏好，但不能决定最终价格、最终时长、发型师是否可用、是否冲突或预约是否成功。
+
+可用性搜索采用自然语言驱动的确定性预约工作流：Agent 负责识别日期、模糊时段和偏好；`AvailabilityService` 按服务支持、结构化专长、营业时间和 SQLite 排班生成候选。候选只保存在当前 session，用户选择后还需最终确认；确认时再次检查冲突，成功写入后才调用可选天气工具。
+
+```text
+“明天下午找擅长冷棕色的老师”
+  -> search_availability
+  -> 明天 + 12:00-18:00 + 染发 + 冷棕色
+  -> 真实发型师资料 + SQLite 排班
+  -> 候选选择 -> 最终确认 -> 冲突复查 -> SQLite
+```
 
 ### MCP / RAG 咨询链路
 
@@ -193,6 +204,19 @@ curl -X POST http://127.0.0.1:8000/api/consultation/query \
 ```
 
 Consultation 响应包含 `answer`、`sources`、`retrieval_mode`、`collection`、`rag_status`、`llm_status`、`source_count` 和 `trace_id`。
+
+聊天页面也支持模糊偏好与排班查询：
+
+```text
+用户：明天下午找擅长冷棕色的老师
+系统：返回真实可预约候选及时间、专长、时长和价格
+用户：第一个
+系统：展示具体候选并请求最终确认
+用户：确认
+系统：二次检查冲突，写入 SQLite，返回 appointment_id，并可选追加上海天气提醒
+```
+
+“冷棕色适合什么肤色？”等知识问题仍进入 Consultation；RAG 不回答“谁有空”或具体档期。
 
 ## 测试与历史评估结果
 
