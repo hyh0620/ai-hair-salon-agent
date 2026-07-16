@@ -12,9 +12,9 @@ AI Hair Salon Agent 将咨询知识检索与确定性预约决策分离。
 
 用户请求通过 Web 页面或 API 进入 FastAPI，由 routes、Swagger、`trace_id` 和 health 相关逻辑处理。
 
-The Task / Agent Layer handles classification, dialog state, and routing only. It does not decide price, duration, schedules, conflicts, or booking success.
+The Task / Agent Layer handles classification, Slot Filling, dialog state, lifecycle selection, and routing. It does not decide price, duration, schedules, conflicts, or booking success.
 
-Task / Agent Layer 只负责分类、对话和路由，不决定价格、时长、排班、冲突或预约成功。
+Task / Agent Layer 负责分类、Slot Filling、对话状态、生命周期候选选择和路由，不决定价格、时长、排班、冲突或预约成功。
 
 ## Consultation Flow / 咨询链路
 
@@ -63,12 +63,49 @@ Booking rules decide:
 - appointment creation
 - conflict detection
 - booking status updates
+- owner-scoped lifecycle access
+- optimistic version checks
 
 预约成功、价格、时长、发型师可用性和冲突结果不由 RAG 或 LLM 决定。
 
 If retrieved text differs from `services/service_catalog.py`, the deterministic service catalog wins.
 
 如果检索文本与 `services/service_catalog.py` 不一致，以确定性服务目录为准。
+
+## Appointment Lifecycle / 预约生命周期
+
+Appointment creation, cancellation, and updates share `AppointmentService`; neither the Agent nor API routes write lifecycle rows directly.
+
+预约创建、取消和修改共用 `AppointmentService`，Agent 和 API route 都不直接写生命周期数据。
+
+```text
+Agent / REST API
+  -> AppointmentService
+  -> BEGIN IMMEDIATE
+     -> owner + status + version validation
+     -> time + service capability + conflict validation
+     -> appointments update
+     -> stylist_schedules update
+  -> COMMIT / ROLLBACK
+```
+
+- `GET /api/appointment` lists the current caller's appointments.
+- `GET /api/appointment/{appointment_id}` uses `appointment_id + user_id` together.
+- `POST /api/appointment/{appointment_id}/cancel` marks both records `cancelled` and releases the slot without deleting history.
+- `PATCH /api/appointment/{appointment_id}` keeps omitted fields, recalculates catalog facts, excludes the current schedule from conflict checks, and updates both rows atomically.
+
+- `GET /api/appointment` 查询当前调用者自己的预约；
+- `GET /api/appointment/{appointment_id}` 使用 `appointment_id + user_id` 联合查询；
+- `POST /api/appointment/{appointment_id}/cancel` 将预约和排班同时标记为 `cancelled`，保留记录并释放档期；
+- `PATCH /api/appointment/{appointment_id}` 保留未提供字段，重新计算服务目录事实，冲突检查排除当前排班，并原子更新两张表。
+
+Each read returns `version`. Cancellation and update require `expected_version`; a mismatch returns `stale_state` instead of silently overwriting a newer operation. SQLite overlap triggers remain the final database guard for `busy` INSERT and UPDATE operations.
+
+查询返回 `version`，取消和修改必须提交 `expected_version`；版本不一致返回 `stale_state`，避免覆盖较新的操作。SQLite overlap Trigger 继续对 `busy` 排班的 INSERT 和 UPDATE 提供数据库兜底。
+
+The current `user_id` is an actor-scoped ownership marker. Chat uses its Session ID when no authenticated user identity exists; this is not production authentication.
+
+当前 `user_id` 是调用者范围内的业务所有权标识；聊天在没有认证用户身份时使用 Session ID，这不等同于生产级身份认证。
 
 ## Optional Weather Context / 可选天气上下文
 
