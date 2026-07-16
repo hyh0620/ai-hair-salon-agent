@@ -32,6 +32,7 @@ class StylistFinder:
         start_time: datetime,
         end_time: datetime,
         yield_func: Optional[Callable] = None,
+        service_value: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         if yield_func:
             yield_func(f"[THOUGHT][预约机器人] 用户指定了发型师：{stylist_name}，正在查询档期...\n")
@@ -40,6 +41,14 @@ class StylistFinder:
         if not stylist:
             if yield_func:
                 yield_func(f"[THOUGHT][预约机器人] 未找到名为'{stylist_name}'的发型师\n")
+            return None
+
+        if service_value and not self.appointment_service.stylist_supports_service(
+            stylist,
+            service_value,
+        ):
+            if yield_func:
+                yield_func(f"[THOUGHT][预约机器人] {stylist_name}不支持所选服务\n")
             return None
 
         if self.appointment_service.is_stylist_available(stylist["id"], start_time, end_time):
@@ -97,6 +106,10 @@ class StylistFinder:
         stylists = [
             item for item in self.appointment_service.get_all_stylists()
             if item["id"] != target_stylist["id"]
+            and self.appointment_service.stylist_supports_service(
+                item,
+                appointment_history.get("service_key") or appointment_history.get("project"),
+            )
         ]
         for stylist in self.rank_stylists(stylists, appointment_history):
             if self.appointment_service.is_stylist_available(stylist["id"], start_time, end_time):
@@ -112,7 +125,12 @@ class StylistFinder:
         end_time: datetime,
         yield_func: Optional[Callable] = None,
     ) -> Optional[Dict[str, Any]]:
-        stylists = self.appointment_service.get_all_stylists()
+        service_value = appointment_history.get("service_key") or appointment_history.get("project")
+        stylists = [
+            item
+            for item in self.appointment_service.get_all_stylists()
+            if self.appointment_service.stylist_supports_service(item, service_value)
+        ]
         if not stylists:
             if yield_func:
                 yield_func("[THOUGHT][预约机器人] 没有找到发型师数据\n")
@@ -147,7 +165,13 @@ class StylistFinder:
 
         stylist_name = appointment_history.get("stylist_name")
         if stylist_name and stylist_name != "未知":
-            specific = self.find_specific_stylist(stylist_name, start_time, end_time, yield_func)
+            specific = self.find_specific_stylist(
+                stylist_name,
+                start_time,
+                end_time,
+                yield_func,
+                appointment_history.get("service_key") or appointment_history.get("project"),
+            )
             if specific:
                 return specific
 

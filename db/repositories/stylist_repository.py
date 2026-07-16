@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
 from ..base.interfaces import BaseStylistRepository, BaseScheduleRepository
 from ..base.session_manager import SessionManager
 from ..models import Stylist, StylistSchedule
@@ -53,14 +54,15 @@ class StylistRepository(BaseStylistRepository, BaseScheduleRepository):
             发型师信息字典，如果不存在返回None
         """
         with self.session_manager.session_scope() as session:
-            stylist = session.query(Stylist).filter(
-                Stylist.id == stylist_id
-            ).first()
-            
-            if not stylist:
-                return None
-                
-            return self._stylist_to_dict(stylist)
+            return self.get_stylist_by_id_in_session(session, stylist_id)
+
+    def get_stylist_by_id_in_session(
+        self,
+        session: Session,
+        stylist_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        stylist = session.query(Stylist).filter(Stylist.id == stylist_id).first()
+        return self._stylist_to_dict(stylist) if stylist else None
 
     def get_stylist_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """
@@ -167,16 +169,35 @@ class StylistRepository(BaseStylistRepository, BaseScheduleRepository):
             新创建的排班ID
         """
         with self.session_manager.session_scope() as session:
-            schedule = StylistSchedule(
+            return self.add_schedule_in_session(
+                session,
                 stylist_id=stylist_id,
                 start_time=start_time,
                 end_time=end_time,
                 status=status,
-                appointment_id=appointment_id
+                appointment_id=appointment_id,
             )
-            session.add(schedule)
-            session.flush()
-            return schedule.id
+
+    @staticmethod
+    def add_schedule_in_session(
+        session: Session,
+        *,
+        stylist_id: int,
+        start_time: datetime,
+        end_time: datetime,
+        status: str,
+        appointment_id: Optional[int] = None,
+    ) -> int:
+        schedule = StylistSchedule(
+            stylist_id=stylist_id,
+            start_time=start_time,
+            end_time=end_time,
+            status=status,
+            appointment_id=appointment_id,
+        )
+        session.add(schedule)
+        session.flush()
+        return int(schedule.id)
 
     def get_stylist_schedules(self, stylist_id: int, date: datetime) -> List[Dict[str, Any]]:
         """
@@ -214,14 +235,28 @@ class StylistRepository(BaseStylistRepository, BaseScheduleRepository):
             是否可用
         """
         with self.session_manager.session_scope() as session:
-            conflict = session.query(StylistSchedule).filter(
-                StylistSchedule.stylist_id == stylist_id,
-                StylistSchedule.status == "busy",
-                StylistSchedule.start_time < end_time,
-                StylistSchedule.end_time > start_time
-            ).first()
-            
-            return conflict is None
+            return not self.has_schedule_conflict_in_session(
+                session,
+                stylist_id=stylist_id,
+                start_time=start_time,
+                end_time=end_time,
+            )
+
+    @staticmethod
+    def has_schedule_conflict_in_session(
+        session: Session,
+        *,
+        stylist_id: int,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> bool:
+        conflict = session.query(StylistSchedule).filter(
+            StylistSchedule.stylist_id == stylist_id,
+            StylistSchedule.status == "busy",
+            StylistSchedule.start_time < end_time,
+            StylistSchedule.end_time > start_time,
+        ).first()
+        return conflict is not None
 
     def update_schedule_status(self, schedule_id: int, status: str, appointment_id: Optional[int] = None) -> bool:
         """

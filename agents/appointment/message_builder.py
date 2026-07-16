@@ -128,6 +128,10 @@ class MessageBuilder:
         messages = {
             "outside_business_hours": "您选择的时间不在门店营业时间内，请重新选择具体时间。",
             "schedule_conflict": "该时间刚刚被其他预约占用，请选择其他时间。",
+            "stylist_not_found": "所选发型师信息已不可用，请重新选择。",
+            "stylist_service_unsupported": "所选发型师不支持该服务，请重新选择。",
+            "invalid_service_duration": "服务时长与门店标准不一致，请重新选择服务。",
+            "unknown_service": "服务项目不在门店服务目录中，请重新选择。",
             "invalid_start_time": "预约时间无法识别，请重新告诉我具体日期和时间。",
             "persistence_error": "系统暂时无法保存预约，请稍后重试。",
         }

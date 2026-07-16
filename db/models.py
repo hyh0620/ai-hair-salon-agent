@@ -16,6 +16,26 @@ class Stylist(Base):
     schedules = relationship("StylistSchedule", back_populates="stylist", cascade="all, delete-orphan")
 
 
+class Appointment(Base):
+    """Persisted booking record created atomically with its busy schedule."""
+
+    __tablename__ = 'appointments'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, default='default_user')
+    session_id = Column(String, nullable=True)
+    stylist_id = Column(Integer, ForeignKey('stylists.id'), nullable=False)
+    service_key = Column(String, nullable=False)
+    service_name = Column(String, nullable=False)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    duration_minutes = Column(Integer, nullable=False)
+    price = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default='confirmed')
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class StylistSchedule(Base):
     __tablename__ = 'stylist_schedules'
 

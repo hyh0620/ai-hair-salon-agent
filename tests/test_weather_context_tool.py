@@ -50,7 +50,7 @@ def build_processor(tmp_path):
         ),
         llm=None,
     )
-    stylist = appointment_service.get_stylist_by_name("林浩")
+    stylist = appointment_service.get_stylist_by_name("周晴")
     return processor, stylist, appointment_service
 
 

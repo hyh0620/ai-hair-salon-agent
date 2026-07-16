@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from ..models import Base
 
@@ -48,12 +48,21 @@ class SessionManager:
             directory = os.path.dirname(sqlite_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-        self.engine = create_engine(db_path)
+        engine_options = {}
+        if db_path.startswith("sqlite:"):
+            engine_options["connect_args"] = {
+                "check_same_thread": False,
+                "timeout": 30,
+            }
+        self.engine = create_engine(db_path, **engine_options)
+        if self.engine.dialect.name == "sqlite":
+            event.listen(self.engine, "connect", self._configure_sqlite_connection)
         Base.metadata.create_all(self.engine)
+        self._install_sqlite_schedule_guards()
         self.Session = scoped_session(sessionmaker(bind=self.engine))
 
     @contextmanager
-    def session_scope(self):
+    def session_scope(self, *, immediate: bool = False):
         """
         提供会话上下文管理
         
@@ -64,6 +73,8 @@ class SessionManager:
         """
         session = self.Session()
         try:
+            if immediate and self.engine.dialect.name == "sqlite":
+                session.execute(text("BEGIN IMMEDIATE"))
             yield session
             session.commit()
         except Exception:
@@ -71,6 +82,56 @@ class SessionManager:
             raise
         finally:
             session.close()
+
+    @staticmethod
+    def _configure_sqlite_connection(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA busy_timeout=30000")
+        finally:
+            cursor.close()
+
+    def _install_sqlite_schedule_guards(self):
+        if self.engine.dialect.name != "sqlite":
+            return
+
+        insert_trigger = """
+        CREATE TRIGGER IF NOT EXISTS prevent_overlapping_busy_schedule_insert
+        BEFORE INSERT ON stylist_schedules
+        WHEN NEW.status = 'busy'
+        BEGIN
+            SELECT RAISE(ABORT, 'schedule_conflict')
+            WHERE EXISTS (
+                SELECT 1
+                FROM stylist_schedules
+                WHERE stylist_id = NEW.stylist_id
+                  AND status = 'busy'
+                  AND start_time < NEW.end_time
+                  AND end_time > NEW.start_time
+            );
+        END
+        """
+        update_trigger = """
+        CREATE TRIGGER IF NOT EXISTS prevent_overlapping_busy_schedule_update
+        BEFORE UPDATE OF stylist_id, start_time, end_time, status ON stylist_schedules
+        WHEN NEW.status = 'busy'
+        BEGIN
+            SELECT RAISE(ABORT, 'schedule_conflict')
+            WHERE EXISTS (
+                SELECT 1
+                FROM stylist_schedules
+                WHERE id != NEW.id
+                  AND stylist_id = NEW.stylist_id
+                  AND status = 'busy'
+                  AND start_time < NEW.end_time
+                  AND end_time > NEW.start_time
+            );
+        END
+        """
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql(insert_trigger)
+            connection.exec_driver_sql(update_trigger)
 
     def close(self):
         """关闭会话管理器"""
