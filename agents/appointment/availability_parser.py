@@ -67,6 +67,12 @@ def _compact(text: str) -> str:
 
 def detect_message_intent(text: str) -> str:
     """Classify only business routing intent; it never queries data or mutates state."""
+    # Imported lazily because lifecycle parsing reuses the temporal helpers in this module.
+    from .lifecycle_parser import detect_lifecycle_intent
+
+    lifecycle_intent = detect_lifecycle_intent(text)
+    if lifecycle_intent:
+        return lifecycle_intent
     normalized = _compact(text)
     booking_markers = ("预约", "预订", "我想约", "想约", "我要约", "帮我约", "约一下", "安排")
     if any(marker in normalized for marker in booking_markers):

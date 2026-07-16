@@ -3,9 +3,9 @@
 
 只保留第一版真正需要的核心功能
 """
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from typing import Annotated, Any, Dict, Literal, Optional, Union
-from datetime import datetime
+from datetime import date, datetime, time
 from config.time_config import time_config
 
 
@@ -88,6 +88,106 @@ AppointmentCreateData = Annotated[
 
 class AppointmentCreateResponse(BaseResponse):
     data: AppointmentCreateData
+
+
+class AppointmentLifecycleItem(BaseModel):
+    appointment_id: int
+    owner_id: str
+    stylist_id: int
+    stylist_name: str
+    service_key: str
+    service_name: str
+    price: int
+    duration_minutes: int
+    start_time: datetime
+    end_time: datetime
+    status: Literal["confirmed", "cancelled", "completed"]
+    version: int = Field(ge=1)
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class AppointmentListData(BaseModel):
+    status: Literal["success"] = "success"
+    appointments: list[AppointmentLifecycleItem]
+
+
+class AppointmentListResponse(BaseResponse):
+    data: AppointmentListData
+
+
+class AppointmentDetailData(BaseModel):
+    status: Literal["success"] = "success"
+    appointment: AppointmentLifecycleItem
+
+
+class AppointmentDetailResponse(BaseResponse):
+    data: AppointmentDetailData
+
+
+AppointmentLifecycleStatus = Literal[
+    "success",
+    "confirmation_required",
+    "not_found",
+    "already_cancelled",
+    "not_modifiable",
+    "conflict",
+    "stale_state",
+    "invalid_time",
+    "outside_business_hours",
+    "service_not_supported",
+    "validation_error",
+    "no_change",
+    "persistence_error",
+]
+
+
+class AppointmentOperationData(BaseModel):
+    status: AppointmentLifecycleStatus
+    appointment: Optional[AppointmentLifecycleItem] = None
+    current_version: Optional[int] = Field(default=None, ge=1)
+    reason: Optional[str] = None
+
+
+class AppointmentOperationResponse(BaseResponse):
+    data: AppointmentOperationData
+
+
+class AppointmentCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1)
+    expected_version: int = Field(ge=1)
+
+
+class AppointmentUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1)
+    expected_version: int = Field(ge=1)
+    target_date: Optional[date] = None
+    start_time: Optional[time] = None
+    stylist_id: Optional[int] = Field(default=None, ge=1)
+    stylist_name: Optional[str] = None
+    project: Optional[str] = None
+    service: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_patch(self):
+        if self.stylist_id is not None and self.stylist_name:
+            raise ValueError("stylist_id 和 stylist_name 只能提供一个")
+        if self.project and self.service:
+            raise ValueError("project 和 service 只能提供一个")
+        if not any((
+            self.target_date,
+            self.start_time,
+            self.stylist_id,
+            self.stylist_name,
+            self.project,
+            self.service,
+        )):
+            raise ValueError("至少需要提供一个要修改的字段")
+        return self
 
 
 # 咨询相关模型

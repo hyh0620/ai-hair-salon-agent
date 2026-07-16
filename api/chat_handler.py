@@ -19,6 +19,10 @@ from agents.appointment.availability_parser import (
     SEARCH_AVAILABILITY,
     detect_message_intent,
 )
+from agents.appointment.lifecycle_parser import (
+    LIFECYCLE_INTENTS,
+    detect_lifecycle_intent,
+)
 from agents.consultant_agent import ConsultantAgent
 from agents.task_classification_agent import TaskClassificationAgent
 
@@ -151,6 +155,22 @@ def has_partial_appointment_slots(session: Optional[ChatSession]) -> bool:
     )
 
 
+def has_active_lifecycle_interaction(session: Optional[ChatSession]) -> bool:
+    if session is None:
+        return False
+    appointment_agent = getattr(session.task_agent, "appointment_agent", None)
+    history = getattr(appointment_agent, "appointment_history", {}) or {}
+    return any(
+        history.get(key)
+        for key in (
+            "pending_lifecycle_action",
+            "awaiting_lifecycle_selection",
+            "awaiting_lifecycle_changes",
+            "awaiting_lifecycle_confirmation",
+        )
+    )
+
+
 def has_active_appointment_flow(session: Optional[ChatSession]) -> bool:
     if session is None:
         return False
@@ -172,6 +192,11 @@ def is_confirmation_response(user_input: str) -> bool:
 
 def route_user_message(user_input: str, session: Optional[ChatSession] = None) -> str:
     """Select a route without mutating Agent state."""
+    if has_active_lifecycle_interaction(session):
+        return "appointment"
+    lifecycle_intent = detect_lifecycle_intent(user_input)
+    if lifecycle_intent in LIFECYCLE_INTENTS:
+        return "appointment"
     if (
         has_pending_availability_interaction(session)
         or has_active_availability_search(session)
@@ -205,16 +230,19 @@ async def ProcessUserInput_stream(
     session = _chat_sessions.get_or_create(session_id)
     try:
         async with session.lock:
-            detected_intent = detect_message_intent(user_input)
+            lifecycle_intent = detect_lifecycle_intent(user_input)
+            detected_intent = lifecycle_intent or detect_message_intent(user_input)
             effective_route = route_user_message(user_input, session)
             logger.info(
                 "chat_route session_id=%s user_message_intent=%s requested_route=%s "
-                "effective_route=%s availability_search_active=%s pending_confirmation=%s state=%s",
+                "effective_route=%s availability_search_active=%s lifecycle_active=%s "
+                "pending_confirmation=%s state=%s",
                 session.session_id,
                 detected_intent,
                 route or "unspecified",
                 effective_route,
                 has_active_availability_search(session),
+                has_active_lifecycle_interaction(session),
                 has_pending_appointment_confirmation(session),
                 session.task_agent.state_manager.get_current_state().value,
             )

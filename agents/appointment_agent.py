@@ -12,6 +12,8 @@ from .appointment.availability_parser import (
 )
 from .appointment.appointment_processor import AppointmentProcessor
 from .appointment.input_parser import InputParser
+from .appointment.lifecycle_parser import LIFECYCLE_INTENTS, detect_lifecycle_intent
+from .appointment.lifecycle_processor import AppointmentLifecycleProcessor
 from .appointment.message_builder import MessageBuilder
 from .appointment.stylist_finder import StylistFinder
 
@@ -49,6 +51,9 @@ class AppointmentAgent:
             self.appointment_database,
             self.llm
         )
+        self.lifecycle_processor = AppointmentLifecycleProcessor(
+            self.appointment_database.appointment_service
+        )
         
         # 会话管理
         self.chats_by_session_id = {}
@@ -71,6 +76,11 @@ class AppointmentAgent:
     
     def reset(self):
         """重置预约历史和状态"""
+        self._reset_business_history()
+        self.chat_history.clear()
+
+    def _reset_business_history(self):
+        """Clear booking workflow state without erasing the visible conversation."""
         self.appointment_history = {
             "gender": None,
             "start_time": None,
@@ -82,11 +92,19 @@ class AppointmentAgent:
             "stylist_name": None,
         }
         self.finished = False
-        self.chat_history.clear()
 
     def set_shared_state(self, shared_state):
         """设置共享状态"""
         self.state = shared_state
+
+    def _get_lifecycle_processor(self) -> AppointmentLifecycleProcessor:
+        processor = getattr(self, "lifecycle_processor", None)
+        if processor is None:
+            processor = AppointmentLifecycleProcessor(
+                self.appointment_database.appointment_service
+            )
+            self.lifecycle_processor = processor
+        return processor
 
     async def run_stream(self, user_input=None):
         """
@@ -99,6 +117,38 @@ class AppointmentAgent:
         
         try:
             detected_intent = detect_message_intent(user_input)
+            lifecycle_intent = detect_lifecycle_intent(user_input)
+            lifecycle_processor = getattr(self, "lifecycle_processor", None)
+            lifecycle_active = AppointmentLifecycleProcessor.is_active(
+                self.appointment_history
+            )
+            creation_confirmation_active = any(
+                self.appointment_history.get(key)
+                for key in (
+                    "awaiting_confirmation",
+                    "awaiting_slot_selection",
+                    "awaiting_slot_confirmation",
+                )
+            )
+            if lifecycle_active or (
+                lifecycle_intent in LIFECYCLE_INTENTS
+                and not creation_confirmation_active
+            ):
+                lifecycle_processor = lifecycle_processor or self._get_lifecycle_processor()
+                if not lifecycle_active:
+                    self._reset_business_history()
+                lifecycle_result = lifecycle_processor.handle(
+                    user_input,
+                    self.appointment_history,
+                    # A chat session is the lifecycle owner marker, not an authenticated user ID.
+                    self.session_id,
+                    intent=lifecycle_intent,
+                )
+                yield f"[REPLY][预约机器人]{lifecycle_result.message}"
+                if lifecycle_result.complete:
+                    self._reset_state_after_lifecycle()
+                return
+
             if self.appointment_history.get("awaiting_slot_confirmation"):
                 if detected_intent in {CREATE_BOOKING, SEARCH_AVAILABILITY}:
                     self.appointment_processor.clear_pending_availability(self.appointment_history)
@@ -252,6 +302,13 @@ class AppointmentAgent:
     def _reset_state_after_appointment(self):
         """预约完成后重置状态"""
         self.reset()
+        if self.state:
+            from config.constants import StateEnum
+            self.state.value = StateEnum.CLASSIFY
+
+    def _reset_state_after_lifecycle(self):
+        """Return routing to classification while preserving chat transcript."""
+        self._reset_business_history()
         if self.state:
             from config.constants import StateEnum
             self.state.value = StateEnum.CLASSIFY

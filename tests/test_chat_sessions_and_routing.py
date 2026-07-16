@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 import re
 from types import SimpleNamespace
@@ -19,6 +19,7 @@ from agents.appointment.stylist_finder import StylistFinder
 from agents.appointment_agent import AppointmentAgent
 from api import chat_handler
 from config.constants import StateEnum
+from config.time_config import time_config
 from services.appointment_service import AppointmentService
 from services.stylist_service import StylistService
 from services.user_behavior_service import UserBehaviorService
@@ -275,7 +276,12 @@ def pending_history(recommended_stylist):
     }
 
 
-def test_confirmation_saves_real_id_before_weather(tmp_path):
+def test_confirmation_saves_real_id_before_weather(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        time_config,
+        "now",
+        lambda: datetime(2026, 7, 15, 12, 0, tzinfo=time_config.BEIJING_TZ),
+    )
     processor, appointment_service = build_confirmation_processor(tmp_path)
     recommended = appointment_service.get_stylist_by_name("林浩")
     history = pending_history(recommended)

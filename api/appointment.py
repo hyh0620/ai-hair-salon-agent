@@ -1,20 +1,31 @@
 """Appointment API with deterministic salon scheduling rules."""
 
 import logging
-from datetime import datetime
-from typing import Any, Dict
+from datetime import date, datetime
+from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
 from config.trace_context import get_trace_id
 from services.availability_service import AvailabilitySearchRequest, AvailabilityService
 from services.service_catalog import normalize_specialty
 from .core.response_models import (
     AppointmentCreateResponse,
+    AppointmentCancelRequest,
+    AppointmentDetailData,
+    AppointmentDetailResponse,
+    AppointmentLifecycleItem,
+    AppointmentListData,
+    AppointmentListResponse,
+    AppointmentOperationData,
+    AppointmentOperationResponse,
     AppointmentRequest,
     AppointmentResponse,
     AppointmentSelectionResponse,
+    AppointmentUpdateRequest,
     AvailabilityCandidateResponse,
 )
 
@@ -216,4 +227,206 @@ async def create_appointment(request: AppointmentRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"创建预约失败: {exc}")
+        logger.exception(
+            "appointment_create_failed trace_id=%s error_type=%s",
+            trace_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="创建预约失败")
+
+
+_LIFECYCLE_ERROR_RESPONSES = {
+    400: {"model": AppointmentOperationResponse},
+    404: {"model": AppointmentOperationResponse},
+    409: {"model": AppointmentOperationResponse},
+    422: {"model": AppointmentOperationResponse},
+    500: {"model": AppointmentOperationResponse},
+}
+
+
+def _lifecycle_http_status(result_status: str) -> int:
+    if result_status == "not_found":
+        return status.HTTP_404_NOT_FOUND
+    if result_status in {"conflict", "stale_state", "not_modifiable"}:
+        return status.HTTP_409_CONFLICT
+    if result_status in {"invalid_time", "outside_business_hours", "service_not_supported"}:
+        return status.HTTP_400_BAD_REQUEST
+    if result_status == "validation_error":
+        return status.HTTP_422_UNPROCESSABLE_ENTITY
+    if result_status == "persistence_error":
+        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    return status.HTTP_200_OK
+
+
+def _operation_response(result, message: str):
+    response = AppointmentOperationResponse(
+        message=message,
+        data=AppointmentOperationData(
+            status=result.status,
+            appointment=(
+                AppointmentLifecycleItem.model_validate(result.appointment)
+                if result.appointment
+                else None
+            ),
+            current_version=result.current_version,
+            reason=result.reason,
+        ),
+    )
+    http_status = _lifecycle_http_status(result.status)
+    if http_status == status.HTTP_200_OK:
+        return response
+    return JSONResponse(
+        status_code=http_status,
+        content=jsonable_encoder(response),
+    )
+
+
+@router.get(
+    "",
+    response_model=AppointmentListResponse,
+    responses=_LIFECYCLE_ERROR_RESPONSES,
+    summary="查询当前调用者的预约",
+    description=(
+        "按 user_id 查询当前调用者范围内的预约。默认只返回未来、confirmed 状态的预约，"
+        "并按开始时间和预约 ID 稳定排序。该 user_id 是业务所有权标识，不是生产级认证。"
+    ),
+)
+async def list_appointments(
+    user_id: str = Query(min_length=1),
+    future_only: bool = True,
+    target_date: Optional[date] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    appointment_status: Literal["confirmed", "cancelled", "completed", "all"] = "confirmed",
+):
+    appointment_service, _, _ = _build_services()
+    statuses = (
+        ("confirmed", "cancelled", "completed")
+        if appointment_status == "all"
+        else (appointment_status,)
+    )
+    result = appointment_service.list_user_appointments(
+        user_id,
+        future_only=future_only,
+        target_date=target_date,
+        date_from=date_from,
+        date_to=date_to,
+        statuses=statuses,
+        trace_id=get_trace_id(),
+    )
+    if not result.success:
+        return _operation_response(result, "预约查询失败")
+    return AppointmentListResponse(
+        message="预约查询成功",
+        data=AppointmentListData(
+            appointments=[
+                AppointmentLifecycleItem.model_validate(item)
+                for item in result.appointments
+            ]
+        ),
+    )
+
+
+@router.get(
+    "/{appointment_id}",
+    response_model=AppointmentDetailResponse,
+    responses=_LIFECYCLE_ERROR_RESPONSES,
+    summary="查询单笔预约",
+    description=(
+        "使用 appointment_id 与 user_id 联合查询最新数据库事实。不存在或不属于当前调用者时，"
+        "统一返回 not_found，避免泄露其他调用者的预约信息。"
+    ),
+)
+async def get_appointment(
+    appointment_id: int,
+    user_id: str = Query(min_length=1),
+):
+    appointment_service, _, _ = _build_services()
+    result = appointment_service.get_user_appointment(
+        appointment_id,
+        user_id,
+        trace_id=get_trace_id(),
+    )
+    if not result.success:
+        return _operation_response(result, "未找到预约")
+    return AppointmentDetailResponse(
+        message="预约查询成功",
+        data=AppointmentDetailData(
+            appointment=AppointmentLifecycleItem.model_validate(result.appointment)
+        ),
+    )
+
+
+@router.post(
+    "/{appointment_id}/cancel",
+    response_model=AppointmentOperationResponse,
+    responses=_LIFECYCLE_ERROR_RESPONSES,
+    summary="取消预约",
+    description=(
+        "在一个 BEGIN IMMEDIATE 事务内校验调用者、状态和 expected_version，"
+        "同时将 appointment 与对应 schedule 更新为 cancelled。"
+    ),
+)
+async def cancel_appointment(
+    appointment_id: int,
+    request: AppointmentCancelRequest,
+):
+    appointment_service, _, _ = _build_services()
+    result = appointment_service.cancel_appointment(
+        appointment_id,
+        request.user_id,
+        request.expected_version,
+        trace_id=get_trace_id(),
+    )
+    messages = {
+        "success": "预约已取消",
+        "already_cancelled": "预约已经取消，无需重复操作",
+        "not_found": "未找到预约",
+        "stale_state": "预约状态已变化，请重新查询后操作",
+        "not_modifiable": "该预约当前不能取消",
+    }
+    return _operation_response(result, messages.get(result.status, "取消预约失败"))
+
+
+@router.patch(
+    "/{appointment_id}",
+    response_model=AppointmentOperationResponse,
+    responses=_LIFECYCLE_ERROR_RESPONSES,
+    summary="修改或改期预约",
+    description=(
+        "合并未提供字段后，从 SERVICE_CATALOG 重新计算价格、标准时长和结束时间，"
+        "在一个 BEGIN IMMEDIATE 事务内完成版本校验、服务能力校验、冲突检查及两表更新。"
+    ),
+)
+async def update_appointment(
+    appointment_id: int,
+    request: AppointmentUpdateRequest,
+):
+    appointment_service, _, _ = _build_services()
+    result = appointment_service.update_appointment(
+        appointment_id,
+        request.user_id,
+        request.expected_version,
+        target_date=request.target_date,
+        target_time=request.start_time,
+        stylist_id=request.stylist_id,
+        stylist_name=request.stylist_name,
+        service_value=request.project or request.service,
+        trace_id=get_trace_id(),
+    )
+    messages = {
+        "success": "预约修改成功",
+        "no_change": "预约信息没有变化",
+        "not_found": "未找到预约",
+        "stale_state": "预约状态已变化，请重新查询后操作",
+        "not_modifiable": "该预约当前不能修改",
+        "conflict": "目标档期已被占用",
+        "invalid_time": "目标时间已经过去或格式无效",
+        "outside_business_hours": "目标时间不在营业时间内",
+        "service_not_supported": "目标发型师不支持该服务",
+        "validation_error": "修改内容无效",
+    }
+    message = messages.get(result.status, "修改预约失败")
+    if result.reason == "stylist_not_found":
+        message = "指定发型师不存在"
+    return _operation_response(result, message)
