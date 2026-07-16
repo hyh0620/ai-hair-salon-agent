@@ -11,34 +11,36 @@ permissions:
 
 jobs:
   test:
-    name: Python ${{ matrix.python-version }}
+    name: Python 3.12
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12"]
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            constraints-py312.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          # Keep the current template API compatible while runtime dependencies remain broad.
-          python -m pip install "starlette<1" "pytest>=8,<9" httpx
+          python -m pip install \
+            -c constraints-py312.txt \
+            -r requirements-dev.txt
 
       - name: Check dependency consistency
         run: python -m pip check
 
       - name: Run full test suite
         run: python -m pytest
+
+      - name: Compile Python modules
+        run: python -m compileall agents api services db config eval
