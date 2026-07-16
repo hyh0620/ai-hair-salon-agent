@@ -40,7 +40,7 @@ jobs:
         run: python -m pip check
 
       - name: Run full test suite
-        run: python -m pytest
+        run: python -m pytest -W error::DeprecationWarning
 
       - name: Compile Python modules
         run: python -m compileall agents api services db config eval
