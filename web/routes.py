@@ -42,7 +42,10 @@ class ChatRouteRequest(BaseModel):
 @router.get("/", response_class=HTMLResponse, summary="主页")
 async def read_root(request: Request):
     """渲染主页聊天界面"""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+    )
 
 
 @router.get("/status", response_class=HTMLResponse, summary="系统状态页面")
@@ -51,9 +54,9 @@ async def system_status_page(request: Request):
     from config.time_config import time_config
 
     return templates.TemplateResponse(
-        "system_status.html",
-        {
-            "request": request,
+        request=request,
+        name="system_status.html",
+        context={
             "status": build_health_status(request),
             "updated_at": time_config.current_datetime_str(),
             "version": "1.0.0",
@@ -101,7 +104,10 @@ async def reset_chat_session(payload: ChatResetRequest):
 @router.get("/user_behavior", response_class=HTMLResponse, summary="用户行为分析页面")
 async def user_behavior_page(request: Request):
     """用户行为分析页面"""
-    return templates.TemplateResponse("user_behavior_analysis.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="user_behavior_analysis.html",
+    )
 
 @router.get("/knowledge", response_class=HTMLResponse, summary="知识服务状态页面")
 async def knowledge_page(request: Request):
@@ -110,16 +116,22 @@ async def knowledge_page(request: Request):
         from api.knowledge import get_knowledge_status
 
         knowledge_data = await get_knowledge_status()
-        return templates.TemplateResponse("knowledge_management.html", {
-            "request": request,
-            "knowledge_status": knowledge_data,
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="knowledge_management.html",
+            context={
+                "knowledge_status": knowledge_data,
+            },
+        )
     except Exception as e:
-        return templates.TemplateResponse("knowledge_management.html", {
-            "request": request,
-            "knowledge_status": None,
-            "error": str(e)
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="knowledge_management.html",
+            context={
+                "knowledge_status": None,
+                "error": str(e),
+            },
+        )
 
 @router.get("/stylists", response_class=HTMLResponse, summary="发型师状态页面")
 async def stylist_page(request: Request):
@@ -131,16 +143,22 @@ async def stylist_page(request: Request):
         # 调用API层函数获取数据
         stylists = await get_all_stylists()
         
-        return templates.TemplateResponse("stylist.html", {
-            "request": request,
-            "stylists": stylists
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="stylist.html",
+            context={
+                "stylists": stylists,
+            },
+        )
     except Exception as e:
-        return templates.TemplateResponse("stylist.html", {
-            "request": request,
-            "stylists": [],
-            "error": str(e)
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="stylist.html",
+            context={
+                "stylists": [],
+                "error": str(e),
+            },
+        )
 
 @router.get("/stylist-schedule", response_class=HTMLResponse, summary="发型师排班页面")
 async def stylist_schedule_page(
@@ -162,31 +180,40 @@ async def stylist_schedule_page(
             for item in schedules_data.stylists
         ]
         
-        return templates.TemplateResponse("stylist_schedule.html", {
-            "request": request,
-            "schedule": schedule,
-            "selected_date": target_date.isoformat(),
-            "previous_date": (target_date - timedelta(days=1)).isoformat(),
-            "next_date": (target_date + timedelta(days=1)).isoformat(),
-            "today": time_config.today().date().isoformat(),
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="stylist_schedule.html",
+            context={
+                "schedule": schedule,
+                "selected_date": target_date.isoformat(),
+                "previous_date": (target_date - timedelta(days=1)).isoformat(),
+                "next_date": (target_date + timedelta(days=1)).isoformat(),
+                "today": time_config.today().date().isoformat(),
+            },
+        )
     except Exception as e:
         logger.error(f"加载发型师排班数据失败: {str(e)}")
         fallback_date = selected_date or date.today()
-        return templates.TemplateResponse("stylist_schedule.html", {
-            "request": request,
-            "schedule": [],
-            "error": str(e),
-            "selected_date": fallback_date.isoformat(),
-            "previous_date": (fallback_date - timedelta(days=1)).isoformat(),
-            "next_date": (fallback_date + timedelta(days=1)).isoformat(),
-            "today": date.today().isoformat(),
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="stylist_schedule.html",
+            context={
+                "schedule": [],
+                "error": str(e),
+                "selected_date": fallback_date.isoformat(),
+                "previous_date": (fallback_date - timedelta(days=1)).isoformat(),
+                "next_date": (fallback_date + timedelta(days=1)).isoformat(),
+                "today": date.today().isoformat(),
+            },
+        )
 
 @router.get("/user_behavior_analysis", response_class=HTMLResponse, summary="用户行为分析页面")
 async def user_behavior_analysis_page(request: Request):
     """用户行为分析页面"""
-    return templates.TemplateResponse("user_behavior_analysis.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="user_behavior_analysis.html",
+    )
 
 @router.get("/admin", response_class=HTMLResponse, summary="系统管理页面")
 async def admin_dashboard(request: Request):
@@ -205,18 +232,24 @@ async def admin_dashboard(request: Request):
             "stylists_count": len(stylists),
         }
         
-        return templates.TemplateResponse("admin_dashboard.html", {
-            "request": request,
-            "db_info": db_info,
-            "stylists": stylists[:5]  # 只显示前5个发型师
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="admin_dashboard.html",
+            context={
+                "db_info": db_info,
+                "stylists": stylists[:5],  # 只显示前5个发型师
+            },
+        )
     except Exception as e:
-        return templates.TemplateResponse("admin_dashboard.html", {
-            "request": request,
-            "db_info": {},
-            "stylists": [],
-            "error": str(e)
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="admin_dashboard.html",
+            context={
+                "db_info": {},
+                "stylists": [],
+                "error": str(e),
+            },
+        )
 
 @router.get("/admin/database", response_class=HTMLResponse, summary="数据库管理页面")
 async def database_admin_page(request: Request):
@@ -235,13 +268,19 @@ async def database_admin_page(request: Request):
             "appointments": 0  # TODO: 通过API获取预约数量
         }
         
-        return templates.TemplateResponse("database_admin.html", {
-            "request": request,
-            "stats": stats
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="database_admin.html",
+            context={
+                "stats": stats,
+            },
+        )
     except Exception as e:
-        return templates.TemplateResponse("database_admin.html", {
-            "request": request,
-            "stats": {},
-            "error": str(e)
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="database_admin.html",
+            context={
+                "stats": {},
+                "error": str(e),
+            },
+        )

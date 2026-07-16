@@ -74,6 +74,9 @@ def test_future_schedule_persists_and_returns_real_ids(monkeypatch, tmp_path):
         assert invalid_date.status_code == 422
         assert today.status_code == 200
         assert page.status_code == 200
+        assert page.template.name == "stylist_schedule.html"
+        assert "request" in page.context
+        assert page.context["selected_date"] == "2026-07-15"
         assert "所选日期：2026-07-15" in page.text
         assert f"预约编号：{appointment['appointment_id']}" in page.text
         assert f"排班编号：{schedule_id}" in page.text
@@ -94,14 +97,20 @@ def test_health_status_page_and_openapi_boundaries(monkeypatch, tmp_path):
     reset_mcp_knowledge_gateway(_disabled_gateway())
     try:
         with TestClient(create_app()) as client:
+            home = client.get("/")
             health = client.get("/health")
             status_page = client.get("/status")
             schema = client.get("/openapi.json").json()
 
+        assert home.status_code == 200
+        assert home.template.name == "index.html"
+        assert "request" in home.context
         assert health.status_code == 200
         assert health.headers["content-type"].startswith("application/json")
         assert health.json()["app"] == "healthy"
         assert status_page.status_code == 200
+        assert status_page.template.name == "system_status.html"
+        assert {"request", "status", "updated_at", "version"} <= status_page.context.keys()
         assert "理发店智能预约 AI Agent" in status_page.text
 
         paths = schema["paths"]
