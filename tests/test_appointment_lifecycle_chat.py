@@ -5,6 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from agents.appointment.availability_parser import (
+    AMBIGUOUS,
+    CREATE_BOOKING,
+    detect_message_intent,
+)
 from agents.appointment.lifecycle_parser import (
     CANCEL_APPOINTMENT,
     GET_APPOINTMENT,
@@ -72,6 +77,53 @@ def _create(service, stylist, owner, *, days=60, hour=14):
 def test_lifecycle_intents_route_to_appointment_without_rag(text, intent):
     assert detect_lifecycle_intent(text) == intent
     assert chat_handler.route_user_message(text) == "appointment"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "我想改一下明天的预约",
+        "我想改一下后天下午的预约",
+        "我想改一下林浩的预约",
+        "我想调整一下周五的预约",
+        "帮我修改明天下午的预约",
+        "把明天的预约改一下",
+    ],
+)
+def test_qualified_update_phrases_keep_lifecycle_routing(text):
+    assert detect_lifecycle_intent(text) == UPDATE_APPOINTMENT
+    assert detect_message_intent(text) == UPDATE_APPOINTMENT
+    assert chat_handler.route_user_message(text) == "appointment"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "把明天的预约换到下午三点",
+        "将周五的预约改到下午四点",
+        "预约改期到后天上午十点",
+    ],
+)
+def test_qualified_reschedule_phrases_keep_lifecycle_routing(text):
+    assert detect_lifecycle_intent(text) == RESCHEDULE_APPOINTMENT
+    assert detect_message_intent(text) == RESCHEDULE_APPOINTMENT
+    assert chat_handler.route_user_message(text) == "appointment"
+
+
+@pytest.mark.parametrize(
+    ("text", "intent", "route"),
+    [
+        ("我想修改一下发型设计方案", AMBIGUOUS, "agent"),
+        ("怎么调整染发后的护理方式", AMBIGUOUS, "agent"),
+        ("明天预约男士短发", CREATE_BOOKING, "appointment"),
+        ("我想预约明天下午三点", CREATE_BOOKING, "appointment"),
+        ("修改头发颜色会伤头发吗", AMBIGUOUS, "agent"),
+    ],
+)
+def test_non_lifecycle_phrases_keep_existing_routing(text, intent, route):
+    assert detect_lifecycle_intent(text) is None
+    assert detect_message_intent(text) == intent
+    assert chat_handler.route_user_message(text) == route
 
 
 def test_multi_appointment_query_selection_is_stable_and_owner_scoped(tmp_path):
@@ -191,6 +243,60 @@ def test_update_chat_collects_change_previews_and_confirms(tmp_path):
     assert before[1] == 1
     assert confirmed.complete is True
     assert "预约修改成功" in confirmed.message
+    with sqlite3.connect(db_file) as connection:
+        after = connection.execute(
+            "SELECT start_time, version FROM appointments WHERE id=?",
+            (created.appointment_id,),
+        ).fetchone()
+    assert "15:00:00" in after[0]
+    assert after[1] == 2
+
+
+def test_qualified_update_phrase_uses_active_flow_and_existing_service(
+    tmp_path,
+    monkeypatch,
+):
+    db_file, service, stylist = _setup(tmp_path)
+    created = _create(service, stylist, "session-a", days=1, hour=14)
+    processor = AppointmentLifecycleProcessor(service)
+    history = {}
+    first_message = "我想改一下明天的预约"
+
+    selected = processor.handle(
+        first_message,
+        history,
+        "session-a",
+        intent=detect_lifecycle_intent(first_message),
+    )
+    task_agent = SimpleNamespace(
+        appointment_agent=SimpleNamespace(appointment_history=history),
+        state_manager=SimpleNamespace(get_current_state=lambda: StateEnum.CLASSIFY),
+    )
+    session = chat_handler.ChatSession("session-a", task_agent)
+
+    assert chat_handler.route_user_message(first_message) == "appointment"
+    assert selected.complete is False
+    assert history["awaiting_lifecycle_changes"] is True
+    assert chat_handler.route_user_message("换到下午三点", session) == "appointment"
+
+    preview = processor.handle("换到下午三点", history, "session-a")
+    original_update = service.update_appointment
+    update_calls = []
+
+    def tracked_update(*args, **kwargs):
+        update_calls.append((args, kwargs))
+        return original_update(*args, **kwargs)
+
+    monkeypatch.setattr(service, "update_appointment", tracked_update)
+    confirmed = processor.handle("确认修改", history, "session-a")
+
+    assert preview.complete is False
+    assert "原预约" in preview.message and "新预约" in preview.message
+    assert confirmed.complete is True
+    assert "预约修改成功" in confirmed.message
+    assert len(update_calls) == 1
+    assert update_calls[0][0][:3] == (created.appointment_id, "session-a", 1)
+    assert history == {}
     with sqlite3.connect(db_file) as connection:
         after = connection.execute(
             "SELECT start_time, version FROM appointments WHERE id=?",
