@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from ..base.interfaces import BaseStylistRepository, BaseScheduleRepository
 from ..base.session_manager import SessionManager
@@ -75,14 +76,15 @@ class StylistRepository(BaseStylistRepository, BaseScheduleRepository):
             发型师信息字典，如果不存在返回None
         """
         with self.session_manager.session_scope() as session:
-            stylist = session.query(Stylist).filter(
-                Stylist.name == name
-            ).first()
-            
-            if not stylist:
-                return None
-                
-            return self._stylist_to_dict(stylist)
+            return self.get_stylist_by_name_in_session(session, name)
+
+    def get_stylist_by_name_in_session(
+        self,
+        session: Session,
+        name: str,
+    ) -> Optional[Dict[str, Any]]:
+        stylist = session.query(Stylist).filter(Stylist.name == name).first()
+        return self._stylist_to_dict(stylist) if stylist else None
 
     def get_all_stylists(self) -> List[Dict[str, Any]]:
         """
@@ -249,14 +251,61 @@ class StylistRepository(BaseStylistRepository, BaseScheduleRepository):
         stylist_id: int,
         start_time: datetime,
         end_time: datetime,
+        exclude_appointment_id: Optional[int] = None,
+        exclude_schedule_id: Optional[int] = None,
     ) -> bool:
-        conflict = session.query(StylistSchedule).filter(
+        query = session.query(StylistSchedule).filter(
             StylistSchedule.stylist_id == stylist_id,
             StylistSchedule.status == "busy",
             StylistSchedule.start_time < end_time,
             StylistSchedule.end_time > start_time,
-        ).first()
+        )
+        if exclude_appointment_id is not None:
+            query = query.filter(or_(
+                StylistSchedule.appointment_id.is_(None),
+                StylistSchedule.appointment_id != exclude_appointment_id,
+            ))
+        if exclude_schedule_id is not None:
+            query = query.filter(StylistSchedule.id != exclude_schedule_id)
+        conflict = query.first()
         return conflict is not None
+
+    @staticmethod
+    def get_schedules_for_appointment_in_session(
+        session: Session,
+        *,
+        appointment_id: int,
+    ) -> List[StylistSchedule]:
+        return (
+            session.query(StylistSchedule)
+            .filter(StylistSchedule.appointment_id == appointment_id)
+            .order_by(StylistSchedule.id.asc())
+            .all()
+        )
+
+    @staticmethod
+    def cancel_schedule_in_session(
+        session: Session,
+        *,
+        schedule: StylistSchedule,
+    ) -> None:
+        schedule.status = "cancelled"
+        session.flush()
+
+    @staticmethod
+    def update_schedule_in_session(
+        session: Session,
+        *,
+        schedule: StylistSchedule,
+        stylist_id: int,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> None:
+        schedule.stylist_id = stylist_id
+        schedule.start_time = start_time
+        schedule.end_time = end_time
+        schedule.status = "busy"
+        session.flush()
 
     def update_schedule_status(self, schedule_id: int, status: str, appointment_id: Optional[int] = None) -> bool:
         """

@@ -58,6 +58,7 @@ class SessionManager:
         if self.engine.dialect.name == "sqlite":
             event.listen(self.engine, "connect", self._configure_sqlite_connection)
         Base.metadata.create_all(self.engine)
+        self._upgrade_sqlite_appointments()
         self._install_sqlite_schedule_guards()
         self.Session = scoped_session(sessionmaker(bind=self.engine))
 
@@ -132,6 +133,52 @@ class SessionManager:
         with self.engine.begin() as connection:
             connection.exec_driver_sql(insert_trigger)
             connection.exec_driver_sql(update_trigger)
+
+    def _upgrade_sqlite_appointments(self):
+        """Apply the small, repeatable lifecycle upgrade to existing SQLite files."""
+        if self.engine.dialect.name != "sqlite":
+            return
+
+        with self.engine.begin() as connection:
+            table_exists = connection.exec_driver_sql(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='appointments'"
+            ).scalar()
+            if not table_exists:
+                return
+
+            columns = {
+                row[1]
+                for row in connection.exec_driver_sql(
+                    "PRAGMA table_info(appointments)"
+                ).fetchall()
+            }
+            upgrades = {
+                "status": "ALTER TABLE appointments ADD COLUMN status VARCHAR NOT NULL DEFAULT 'confirmed'",
+                "updated_at": "ALTER TABLE appointments ADD COLUMN updated_at DATETIME",
+                "version": "ALTER TABLE appointments ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
+            }
+            for column_name, statement in upgrades.items():
+                if column_name not in columns:
+                    connection.exec_driver_sql(statement)
+
+            connection.exec_driver_sql(
+                "UPDATE appointments SET status='confirmed' WHERE status IS NULL OR status=''"
+            )
+            connection.exec_driver_sql(
+                "UPDATE appointments SET version=1 WHERE version IS NULL OR version < 1"
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_appointments_owner_start "
+                "ON appointments(user_id, start_time, id)"
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_appointments_status_start "
+                "ON appointments(status, start_time, id)"
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_stylist_schedules_appointment "
+                "ON stylist_schedules(appointment_id)"
+            )
 
     def close(self):
         """关闭会话管理器"""
