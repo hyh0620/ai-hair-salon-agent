@@ -2,8 +2,11 @@
 
 from .exceptions import BusinessException, api_exception_handler, general_exception_handler
 from .response_models import (
+    AppointmentCreateResponse,
     AppointmentRequest,
     AppointmentResponse,
+    AppointmentSelectionResponse,
+    AvailabilityCandidateResponse,
     BaseResponse,
     ConsultationRequest,
     ConsultationResponse,
@@ -17,8 +20,11 @@ from .response_models import (
 __all__ = [
     "BaseResponse",
     "DataResponse",
+    "AppointmentCreateResponse",
     "AppointmentRequest",
     "AppointmentResponse",
+    "AppointmentSelectionResponse",
+    "AvailabilityCandidateResponse",
     "ConsultationRequest",
     "ConsultationResponse",
     "UserBehaviorRequest",

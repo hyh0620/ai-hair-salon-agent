@@ -2,15 +2,26 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import create_app
+from config.time_config import time_config
 from services.appointment_service import AppointmentService
 from services.service_catalog import normalize_service
 from services.stylist_service import StylistService
 
 
 DATASET = Path(__file__).resolve().parents[1] / "eval" / "golden_dataset.jsonl"
+
+
+@pytest.fixture(autouse=True)
+def fixed_booking_clock(monkeypatch):
+    monkeypatch.setattr(
+        time_config,
+        "now",
+        lambda: datetime(2026, 7, 11, 9, 0, tzinfo=time_config.BEIJING_TZ),
+    )
 
 
 def test_booking_golden_cases_reference_known_catalog_services():

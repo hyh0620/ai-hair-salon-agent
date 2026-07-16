@@ -118,6 +118,8 @@ class AppointmentService:
             service = normalize_service(details.get("service_key") or details.get("project"))
 
             with self.db_router.session_manager.session_scope(immediate=True) as session:
+                if not self.is_future_start_time(start_time):
+                    raise _BookingRejected("past_appointment")
                 if not self.is_within_business_hours(start_time, end_time):
                     raise _BookingRejected("outside_business_hours")
                 if not service:
@@ -141,7 +143,8 @@ class AppointmentService:
 
                 appointment_id = self.appointment_repo.add_appointment_in_session(
                     session,
-                    user_id=str(details.get("user_id") or "default_user"),
+                    # A chat session is a tracking identifier, not an authenticated user ID.
+                    user_id=str(details.get("user_id") or session_id),
                     session_id=session_id,
                     stylist_id=stylist_id_int,
                     service_key=service.key,
@@ -221,6 +224,15 @@ class AppointmentService:
                 reason="persistence_error",
                 transaction_id=transaction_id,
             )
+
+    @staticmethod
+    def is_future_start_time(start_time: datetime) -> bool:
+        now = time_config.now()
+        if start_time.tzinfo is None:
+            comparable_now = now.astimezone(time_config.BEIJING_TZ).replace(tzinfo=None)
+        else:
+            comparable_now = now.astimezone(start_time.tzinfo)
+        return start_time > comparable_now
 
     def is_within_business_hours(self, start_time: datetime, end_time: datetime) -> bool:
         start_hour, end_hour = time_config.get_business_hours()

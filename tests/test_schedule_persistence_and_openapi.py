@@ -1,9 +1,10 @@
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 from fastapi.testclient import TestClient
 
 from app import create_app
+from config.time_config import time_config
 from services.appointment_service import AppointmentService
 from services.mcp_knowledge_gateway import MCPKnowledgeGateway, reset_mcp_knowledge_gateway
 
@@ -13,6 +14,11 @@ def _disabled_gateway():
 
 
 def test_future_schedule_persists_and_returns_real_ids(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        time_config,
+        "now",
+        lambda: datetime(2026, 7, 14, 9, 0, tzinfo=time_config.BEIJING_TZ),
+    )
     db_file = tmp_path / "persistent_schedule.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
     monkeypatch.setenv("RAG_MCP_ENABLED", "false")

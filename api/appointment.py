@@ -3,13 +3,20 @@
 import logging
 from datetime import datetime
 from typing import Any, Dict
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, status
 
 from config.trace_context import get_trace_id
 from services.availability_service import AvailabilitySearchRequest, AvailabilityService
 from services.service_catalog import normalize_specialty
-from .core.response_models import AppointmentRequest, AppointmentResponse, DataResponse
+from .core.response_models import (
+    AppointmentCreateResponse,
+    AppointmentRequest,
+    AppointmentResponse,
+    AppointmentSelectionResponse,
+    AvailabilityCandidateResponse,
+)
 
 router = APIRouter(prefix="/api/appointment", tags=["预约管理"])
 logger = logging.getLogger(__name__)
@@ -28,9 +35,9 @@ def _build_services():
     return appointment_service, finder, availability_service
 
 
-def _request_to_history(request: AppointmentRequest) -> Dict[str, Any]:
+def _request_to_history(request: AppointmentRequest, tracking_user_id: str) -> Dict[str, Any]:
     return {
-        "user_id": request.user_id,
+        "user_id": tracking_user_id,
         "project": request.project or request.service,
         "start_time": request.start_time,
         "duration": request.duration,
@@ -49,7 +56,7 @@ def _candidate_response(
     start_time: datetime,
     end_time: datetime,
     availability_service: AvailabilityService,
-) -> DataResponse:
+) -> AppointmentCreateResponse:
     specialty = normalize_specialty(request.style_preference or request.preference)
     options = availability_service.search_available_stylists(
         AvailabilitySearchRequest(
@@ -66,24 +73,30 @@ def _candidate_response(
             status_code=status.HTTP_409_CONFLICT,
             detail="该时间没有支持所选服务的可预约发型师",
         )
-    return DataResponse(
+    return AppointmentCreateResponse(
         message="请选择发型师后再次提交预约；显式提交所选发型师即表示最终确认",
-        data={
-            "status": "selection_required",
-            "requires_selection": True,
-            "requires_confirmation": True,
-            "project": details["project"],
-            "start_time": start_time.strftime("%Y-%m-%d %H:%M"),
-            "duration": details["duration"],
-            "price": details["price"],
-            "candidates": [option.to_session_dict() for option in options],
-        },
+        data=AppointmentSelectionResponse(
+            project=details["project"],
+            start_time=start_time.strftime("%Y-%m-%d %H:%M"),
+            duration=details["duration"],
+            price=details["price"],
+            candidates=[
+                AvailabilityCandidateResponse.model_validate(option.to_session_dict())
+                for option in options
+            ],
+        ),
     )
 
 
 def _raise_for_save_failure(reason: str) -> None:
-    if reason in {"outside_business_hours", "unknown_service", "invalid_service_duration"}:
+    if reason in {
+        "past_appointment",
+        "outside_business_hours",
+        "unknown_service",
+        "invalid_service_duration",
+    }:
         detail = {
+            "past_appointment": "预约时间已经过去",
             "outside_business_hours": "预约时间不在营业时间内",
             "unknown_service": "服务项目不在理发店服务目录中",
             "invalid_service_duration": "预约时长与服务目录不一致",
@@ -100,7 +113,7 @@ def _raise_for_save_failure(reason: str) -> None:
 
 @router.post(
     "/create",
-    response_model=DataResponse,
+    response_model=AppointmentCreateResponse,
     summary="创建理发店预约",
     description=(
         "使用服务目录、营业时间、发型师排班和 SQLite 冲突校验创建预约。"
@@ -111,10 +124,14 @@ def _raise_for_save_failure(reason: str) -> None:
 async def create_appointment(request: AppointmentRequest):
     """Create an appointment using catalog, schedule and conflict rules."""
     trace_id = get_trace_id()
+    # This fallback is request-scoped tracking only, not an authenticated user identity.
+    tracking_user_id = request.user_id or f"api-session-{trace_id or uuid4().hex}"
     logger.info("appointment_route trace_id=%s service=%s stylist_id=%s", trace_id, request.project or request.service, request.stylist_id)
     try:
         appointment_service, finder, availability_service = _build_services()
-        details = appointment_service.build_appointment_details(_request_to_history(request))
+        details = appointment_service.build_appointment_details(
+            _request_to_history(request, tracking_user_id)
+        )
 
         if not details.get("service_key"):
             logger.info("appointment_rejected trace_id=%s reason=unknown_service", trace_id)
@@ -127,6 +144,10 @@ async def create_appointment(request: AppointmentRequest):
         if not start_time or not end_time or not duration_min:
             logger.info("appointment_rejected trace_id=%s reason=invalid_time_or_duration", trace_id)
             raise HTTPException(status_code=400, detail="开始时间或服务时长格式不正确")
+
+        if not appointment_service.is_future_start_time(start_time):
+            logger.info("appointment_rejected trace_id=%s reason=past_appointment", trace_id)
+            raise HTTPException(status_code=400, detail="预约时间已经过去")
 
         if not appointment_service.is_within_business_hours(start_time, end_time):
             logger.info("appointment_rejected trace_id=%s reason=outside_business_hours", trace_id)
@@ -155,7 +176,7 @@ async def create_appointment(request: AppointmentRequest):
                 "appointment_selection_required trace_id=%s service=%s candidate_count=%s",
                 trace_id,
                 details["service_key"],
-                len(response.data["candidates"]),
+                len(response.data.candidates),
             )
             return response
 
@@ -164,7 +185,7 @@ async def create_appointment(request: AppointmentRequest):
             start_time=start_time,
             end_time=end_time,
             appointment_history=details,
-            session_id=request.user_id,
+            session_id=tracking_user_id,
         )
         if not saved.success:
             logger.info(
@@ -178,7 +199,7 @@ async def create_appointment(request: AppointmentRequest):
         logger.info("appointment_response trace_id=%s status=confirmed stylist_id=%s service=%s", trace_id, stylist["id"], details["project"])
         response = AppointmentResponse(
             appointment_id=saved.appointment_id,
-            user_id=request.user_id,
+            user_id=tracking_user_id,
             project=details["project"],
             start_time=start_time.strftime("%Y-%m-%d %H:%M"),
             end_time=end_time.strftime("%Y-%m-%d %H:%M"),
@@ -189,7 +210,7 @@ async def create_appointment(request: AppointmentRequest):
             stylist_name=stylist["name"],
             notes=request.notes,
         )
-        return DataResponse(message="预约创建成功", data=response.model_dump())
+        return AppointmentCreateResponse(message="预约创建成功", data=response)
     except HTTPException:
         raise
     except ValueError as exc:

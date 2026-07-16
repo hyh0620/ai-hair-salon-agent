@@ -9,6 +9,7 @@ from agents.appointment.appointment_processor import AppointmentProcessor, Weath
 from agents.appointment.input_parser import InputParser
 from agents.appointment.message_builder import MessageBuilder
 from agents.appointment.stylist_finder import StylistFinder
+from config.time_config import time_config
 from services.appointment_service import AppointmentService
 from services.stylist_service import StylistService
 from services.user_behavior_service import UserBehaviorService
@@ -33,6 +34,7 @@ def weather_environment(monkeypatch):
     monkeypatch.setenv("WEATHER_TIMEOUT_SECONDS", "3")
     monkeypatch.setenv("WEATHER_FORECAST_DAYS", "16")
     monkeypatch.delenv("OPENWEATHER_API_KEY", raising=False)
+    monkeypatch.setattr(time_config, "now", lambda: FIXED_NOW)
     monkeypatch.setattr(WeatherTool, "_now", lambda self: FIXED_NOW)
 
 

@@ -3,12 +3,18 @@ from datetime import datetime, timedelta
 import pytest
 
 from agents.appointment.stylist_finder import StylistFinder
+from config.time_config import time_config
 from services.appointment_service import AppointmentService
 from services.stylist_service import StylistService
 
 
 @pytest.fixture()
-def salon_stack(tmp_path):
+def salon_stack(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        time_config,
+        "now",
+        lambda: datetime(2026, 7, 5, 9, 0, tzinfo=time_config.BEIJING_TZ),
+    )
     db_path = f"sqlite:///{tmp_path / 'salon.db'}"
     StylistService(db_path).initialize_default_stylists()
     appointment_service = AppointmentService(db_path)

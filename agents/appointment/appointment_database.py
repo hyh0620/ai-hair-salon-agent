@@ -100,10 +100,12 @@ class AppointmentDatabase:
                 'budget': appointment_history.get('budget', ''),
                 'stylist_id': stylist_id
             }
-            
+
+            # Session IDs provide request tracing here; they are not authenticated identities.
+            tracking_user_id = str(appointment_history.get("user_id") or session_id)
             # 通过Services层记录用户行为
             self.user_behavior_service.record_behavior(
-                user_id="default_user",  # 统一使用default_user作为用户ID
+                user_id=tracking_user_id,
                 action_type='appointment',
                 action_data=action_data,
                 stylist_id=str(stylist_id),

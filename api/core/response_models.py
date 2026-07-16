@@ -4,7 +4,7 @@
 只保留第一版真正需要的核心功能
 """
 from pydantic import AliasChoices, BaseModel, Field, model_validator
-from typing import Any, Dict, Optional
+from typing import Annotated, Any, Dict, Literal, Optional, Union
 from datetime import datetime
 from config.time_config import time_config
 
@@ -22,7 +22,7 @@ class DataResponse(BaseResponse):
 
 # 预约相关模型
 class AppointmentRequest(BaseModel):
-    user_id: str = "default_user"
+    user_id: Optional[str] = None
     project: Optional[str] = None
     service: Optional[str] = None
     start_time: str
@@ -43,17 +43,51 @@ class AppointmentRequest(BaseModel):
 
 
 class AppointmentResponse(BaseModel):
-    appointment_id: Optional[int] = None
+    appointment_id: int
     user_id: str
     project: str
     start_time: str
     end_time: str
     duration: str
     price: int
-    status: str
+    status: Literal["confirmed"] = "confirmed"
     stylist_id: int
     stylist_name: str
     notes: Optional[str] = None
+
+
+class AvailabilityCandidateResponse(BaseModel):
+    option_id: int
+    stylist_id: int
+    stylist_name: str
+    service_key: str
+    service_name: str
+    specialty_matches: list[str]
+    start_time: str
+    end_time: str
+    duration_minutes: int
+    price: int
+
+
+class AppointmentSelectionResponse(BaseModel):
+    status: Literal["selection_required"] = "selection_required"
+    requires_selection: Literal[True] = True
+    requires_confirmation: Literal[True] = True
+    project: str
+    start_time: str
+    duration: str
+    price: int
+    candidates: list[AvailabilityCandidateResponse]
+
+
+AppointmentCreateData = Annotated[
+    Union[AppointmentResponse, AppointmentSelectionResponse],
+    Field(discriminator="status"),
+]
+
+
+class AppointmentCreateResponse(BaseResponse):
+    data: AppointmentCreateData
 
 
 # 咨询相关模型

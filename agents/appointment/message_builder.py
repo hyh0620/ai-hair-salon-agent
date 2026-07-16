@@ -133,6 +133,7 @@ class MessageBuilder:
             "invalid_service_duration": "服务时长与门店标准不一致，请重新选择服务。",
             "unknown_service": "服务项目不在门店服务目录中，请重新选择。",
             "invalid_start_time": "预约时间无法识别，请重新告诉我具体日期和时间。",
+            "past_appointment": "预约时间已经过去，请重新选择具体时间。",
             "persistence_error": "系统暂时无法保存预约，请稍后重试。",
         }
         detail = messages.get(reason, "系统暂时无法保存预约，请稍后重试。")
