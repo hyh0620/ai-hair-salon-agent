@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import declarative_base, relationship
-from datetime import datetime
+from config.time_config import utc_now_naive
 
 Base = declarative_base()
 
@@ -32,7 +32,7 @@ class Appointment(Base):
     price = Column(Integer, nullable=False)
     status = Column(String, nullable=False, default='confirmed')
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
     updated_at = Column(DateTime, nullable=True)
     version = Column(Integer, nullable=False, default=1)
 
@@ -58,7 +58,7 @@ class UserBehavior(Base):
     action_data = Column(JSON, nullable=True)  # 存储行为相关的详细数据
     stylist_id = Column(Integer, ForeignKey('stylists.id'), nullable=True)
     session_id = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
     stylist = relationship("Stylist")
 
 
@@ -70,7 +70,7 @@ class UserPreference(Base):
     preference_type = Column(String, nullable=False)  # 'stylist', 'time', 'service', 'duration'
     preference_value = Column(String, nullable=False)
     confidence_score = Column(Integer, default=1)  # 偏好的置信度（出现次数）
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class UserRecommendation(Base):
@@ -82,6 +82,6 @@ class UserRecommendation(Base):
     content = Column(Text, nullable=False)
     stylist_id = Column(Integer, ForeignKey('stylists.id'), nullable=True)
     is_sent = Column(Integer, default=0)  # 是否已发送
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
     sent_at = Column(DateTime, nullable=True)
     stylist = relationship("Stylist")

@@ -13,7 +13,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -148,7 +148,7 @@ def main() -> int:
     client = Client(args.base_url, args.timeout)
 
     report: Dict[str, Any] = {
-        "run_timestamp": datetime.utcnow().isoformat() + "Z",
+        "run_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "base_url": args.base_url,
         "checks": {},
         "killed_pids": [],

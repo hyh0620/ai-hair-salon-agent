@@ -8,6 +8,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 
+def utc_now_naive() -> datetime:
+    """Return naive UTC for existing SQLite DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class TimeConfig:
     """时间配置类"""
     

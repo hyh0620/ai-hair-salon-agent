@@ -1,8 +1,9 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import timedelta
 from ..base.interfaces import BaseUserBehaviorRepository
 from ..base.session_manager import SessionManager
 from ..models import UserBehavior, UserPreference, UserRecommendation, Stylist
+from config.time_config import utc_now_naive
 
 
 class UserBehaviorRepository(BaseUserBehaviorRepository):
@@ -72,7 +73,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
                 query = query.filter(UserBehavior.action_type == action_type)
             
             if days_back:
-                cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+                cutoff_date = utc_now_naive() - timedelta(days=days_back)
                 query = query.filter(UserBehavior.created_at >= cutoff_date)
             
             behaviors = query.order_by(UserBehavior.created_at.desc()).all()
@@ -120,7 +121,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
             if existing:
                 # 增加置信度
                 existing.confidence_score += 1
-                existing.last_updated = datetime.utcnow()
+                existing.last_updated = utc_now_naive()
             else:
                 # 创建新偏好
                 preference = UserPreference(
@@ -234,7 +235,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
             
             if recommendation:
                 recommendation.is_sent = 1
-                recommendation.sent_at = datetime.utcnow()
+                recommendation.sent_at = utc_now_naive()
                 return True
             return False
 
@@ -250,7 +251,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
             用户统计信息字典
         """
         with self.session_manager.session_scope() as session:
-            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+            cutoff_date = utc_now_naive() - timedelta(days=days_back)
             
             # 总行为数
             total_behaviors = session.query(UserBehavior).filter(
@@ -300,7 +301,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
                 'favorite_stylist_name': favorite_stylist[1] if favorite_stylist else None,
                 'favorite_stylist_visits': favorite_stylist[2] if favorite_stylist else 0,
                 'last_visit_date': last_visit.created_at if last_visit else None,
-                'days_since_last_visit': (datetime.utcnow() - last_visit.created_at).days if last_visit else None,
+                'days_since_last_visit': (utc_now_naive() - last_visit.created_at).days if last_visit else None,
                 'period_days': days_back
             }
 
@@ -315,7 +316,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
             发型师受欢迎程度列表
         """
         with self.session_manager.session_scope() as session:
-            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+            cutoff_date = utc_now_naive() - timedelta(days=days_back)
             
             from sqlalchemy import func
             
