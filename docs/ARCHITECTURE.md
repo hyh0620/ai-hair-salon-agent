@@ -1,144 +1,226 @@
-# Architecture / 系统架构
+# 系统架构
 
-AI Hair Salon Agent separates consultation knowledge retrieval from deterministic booking decisions.
+AI Hair Salon Agent 将自然语言交互、确定性预约服务和独立知识咨询服务分为不同责任层。
 
-AI Hair Salon Agent 将咨询知识检索与确定性预约决策分离。
+> **Agent 负责理解，业务服务负责决策，SQLite 负责保存事实。**
 
-![Architecture](../architecture.svg)
+主架构图见 [`../architecture.svg`](../architecture.svg)。
 
-## Entry and Routing / 入口与路由
+## 请求入口与中心路由
 
-`User Request` enters through Web pages or APIs, then reaches FastAPI routes, Swagger, `trace_id`, and health middleware.
+Web 页面和 REST API 统一进入 FastAPI。聊天请求由中心路由结合以下信息决定实际业务链路：
 
-用户请求通过 Web 页面或 API 进入 FastAPI，由 routes、Swagger、`trace_id` 和 health 相关逻辑处理。
+1. 当前 Session 是否存在活动中的预约流程；
+2. 高精度业务预路由是否识别到创建、档期查询或生命周期操作；
+3. 确定性日期、时间和选择表达；
+4. LLM 对开放表达的辅助分类。
 
-The Task / Agent Layer handles classification, Slot Filling, dialog state, lifecycle selection, and routing. It does not decide price, duration, schedules, conflicts, or booking success.
+后端拥有最终路由决定权。即使前端提交了错误 route，只要当前消息或 Session 状态明确属于预约，后端仍会进入 Booking 链路。
 
-Task / Agent Layer 负责分类、Slot Filling、对话状态、生命周期候选选择和路由，不决定价格、时长、排班、冲突或预约成功。
+系统不是把所有意图都交给 LLM：明确状态和高精度规则优先，LLM 用于更开放的分类、槽位提取和回复组织。
 
-## Consultation Flow / 咨询链路
+## Session 与状态边界
 
-Consultation uses the main project's MCP Knowledge Gateway, which is the internal MCP Client wrapper.
+`ChatSessionRegistry` 为每个浏览器 Session 保存独立的：
 
-咨询链路使用主项目内部的 MCP Knowledge Gateway，即 MCP Client 封装。
+* `TaskClassificationAgent`；
+* `AppointmentAgent`；
+* `ConsultantAgent`；
+* 对话历史和预约历史；
+* 活动预约槽位；
+* 候选列表与待确认状态；
+* 生命周期操作上下文。
 
-```text
-Consultation request
-  -> MCP Knowledge Gateway
-  -> MCP Knowledge Service (MCP Server)
-  -> query_knowledge_hub
-  -> Dense Retrieval + BM25 + RRF
-  -> Consultation Result with Citations
-```
+同一 Session 的请求通过 `asyncio.Lock` 串行处理。注册表设置 3600 秒 TTL 和最多 100 个 Session，重置时删除对应进程内状态。
 
-When `RAG_MCP_ENABLED=true`, FastAPI lifespan startup creates the gateway, launches MCP Knowledge Service as a child process through stdio, calls `initialize`, calls `tools/list`, verifies `query_knowledge_hub`, and reuses the session for consultation requests.
+这些机制用于隔离业务对话上下文，不是安全鉴权：
 
-当 `RAG_MCP_ENABLED=true` 时，FastAPI lifespan startup 会创建 gateway，通过 stdio 拉起 MCP Knowledge Service 子进程，执行 `initialize`、`tools/list`，校验 `query_knowledge_hub`，并复用该会话处理咨询请求。
+* Session ID 不是登录凭证；
+* 状态只保存在当前应用进程内；
+* 应用重启后状态不会保留；
+* 多实例之间不会自动共享状态；
+* 它不是持久化用户 Memory，也不是 Redis 分布式 Session。
 
-`python -m src.mcp_server.server` starts an stdio JSON-RPC server, not an interactive CLI. For normal application use, let the MCP client launch it automatically.
+> 当前实现的是业务对话状态，不是长期用户记忆，也不是生产级身份会话。
 
-`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是可直接交互查询的 CLI；正常业务运行时应由 MCP Client 自动拉起。
+## Agent 职责分工
 
-## Booking Flow / 预约链路
+项目采用中心路由协调、按职责拆分的 Agent 组件：
 
-Booking APIs and conversational booking flows use deterministic backend services and SQLite.
+### `TaskClassificationAgent`
 
-预约 API 和聊天预约流程使用确定性后端服务和 SQLite。
+* 结合规则、Session 状态和模型分类任务；
+* 在 Booking 与 Consultation 之间分流；
+* 不执行预约写入。
 
-```text
-Booking request
-  -> service_catalog
-  -> price and duration
-  -> stylist schedule validation
-  -> conflict validation
-  -> SQLite appointment write
-  -> Appointment Success
-```
+### `AppointmentAgent`
 
-Booking rules decide:
+* 解析预约意图和槽位；
+* 维护创建、查询、取消和修改的多轮状态；
+* 理解候选选择与最终确认；
+* 调用确定性服务，不直接修改数据库。
 
-- service normalization
-- price and duration
-- stylist availability
-- appointment creation
-- conflict detection
-- booking status updates
-- owner-scoped lifecycle access
-- optimistic version checks
+### `ConsultantAgent`
 
-预约成功、价格、时长、发型师可用性和冲突结果不由 RAG 或 LLM 决定。
+* 将知识问题交给 `MCPKnowledgeGateway`；
+* 组织知识服务返回的回答和 Citations；
+* 不提供真实排班或预约裁决。
 
-If retrieved text differs from `services/service_catalog.py`, the deterministic service catalog wins.
+这些组件在同一应用进程中由中心路由和共享 Session 协调，不是独立部署、自由协商或自主规划的分布式 Agent。
 
-如果检索文本与 `services/service_catalog.py` 不一致，以确定性服务目录为准。
+## 确定性预约链路
 
-## Appointment Lifecycle / 预约生命周期
-
-Appointment creation, cancellation, and updates share `AppointmentService`; neither the Agent nor API routes write lifecycle rows directly.
-
-预约创建、取消和修改共用 `AppointmentService`，Agent 和 API route 都不直接写生命周期数据。
+Booking 链路保持以下调用关系：
 
 ```text
-Agent / REST API
-  -> AppointmentService
-  -> BEGIN IMMEDIATE
-     -> owner + status + version validation
-     -> time + service capability + conflict validation
-     -> appointments update
-     -> stylist_schedules update
-  -> COMMIT / ROLLBACK
+AppointmentAgent
+  ↓
+规则解析 + LLM 辅助槽位提取
+  ↓
+SERVICE_CATALOG
+  ↓
+AvailabilityService
+  ↓
+候选选择与最终确认
+  ↓
+AppointmentService
+  ↓
+SQLite
 ```
 
-- `GET /api/appointment` lists the current caller's appointments.
-- `GET /api/appointment/{appointment_id}` uses `appointment_id + user_id` together.
-- `POST /api/appointment/{appointment_id}/cancel` marks both records `cancelled` and releases the slot without deleting history.
-- `PATCH /api/appointment/{appointment_id}` keeps omitted fields, recalculates catalog facts, excludes the current schedule from conflict checks, and updates both rows atomically.
+### `SERVICE_CATALOG`
 
-- `GET /api/appointment` 查询当前调用者自己的预约；
-- `GET /api/appointment/{appointment_id}` 使用 `appointment_id + user_id` 联合查询；
-- `POST /api/appointment/{appointment_id}/cancel` 将预约和排班同时标记为 `cancelled`，保留记录并释放档期；
-- `PATCH /api/appointment/{appointment_id}` 保留未提供字段，重新计算服务目录事实，冲突检查排除当前排班，并原子更新两张表。
+保存标准服务、价格和时长，是这些业务事实的权威来源。客户端或 LLM 提供的价格、结束时间和标准时长不会覆盖目录。
 
-Each read returns `version`. Cancellation and update require `expected_version`; a mismatch returns `stale_state` instead of silently overwriting a newer operation. SQLite overlap triggers remain the final database guard for `busy` INSERT and UPDATE operations.
+### `AvailabilityService`
 
-查询返回 `version`，取消和修改必须提交 `expected_version`；版本不一致返回 `stale_state`，避免覆盖较新的操作。SQLite overlap Trigger 继续对 `busy` 排班的 INSERT 和 UPDATE 提供数据库兜底。
+只读取结构化业务数据和 SQLite 排班，负责：
 
-The current `user_id` is an actor-scoped ownership marker. Chat uses its Session ID when no authenticated user identity exists; this is not production authentication.
+* 服务支持过滤；
+* 专长匹配；
+* 营业时间约束；
+* 完整服务时长计算；
+* 精确时间或时间范围候选生成；
+* 已有 `busy` 排班冲突过滤；
+* 过去时间过滤；
+* 稳定候选排序。
 
-当前 `user_id` 是调用者范围内的业务所有权标识；聊天在没有认证用户身份时使用 Session ID，这不等同于生产级身份认证。
+未指定发型师时，无论请求是精确时间还是时间范围，都先返回候选。即使只有一位候选，也必须由用户选择并最终确认，系统不会自动写入。
 
-## Optional Weather Context / 可选天气上下文
+### `AppointmentService`
 
-Optional Weather Context is not an MCP Server, not an MCP Tool, and not part of RAG.
+统一承载聊天和 REST API 的预约规则，包括时间、营业时间、服务能力、状态、owner 范围、版本、冲突与事务。API 层和 Agent 层不复制这些写入规则。
 
-Optional Weather Context 不是 MCP Server、不是 MCP Tool，也不是 RAG 的一部分。
+## 预约生命周期
+
+系统支持创建、查询、取消和修改预约。
+
+### 创建
 
 ```text
-Appointment Success
-  -> Optional Weather Context
-  -> append travel reminder only when real weather data is available
+结构化槽位
+→ 查询真实候选
+→ 用户选择
+→ 最终确认
+→ 二次冲突检查
+→ 原子写入
+→ appointment_id
 ```
 
-It can run only after a conversational booking has already been saved. It never changes appointment success, service price, service duration, stylist selection, schedule availability, or conflict validation.
+### 查询
 
-它只能在聊天预约保存成功后执行，不能改变预约是否成功、价格、时长、发型师选择、排班可用性或冲突校验结果。
+查询以 `appointment_id + owner_id` 或 owner 范围为条件，返回数据库中的最新状态和 `version`。Session 保存的候选只是交互上下文，不是权威事实。
 
-If disabled, missing configuration, timeout, or non-200 weather response occurs, the system omits the weather reminder and keeps the booking success response unchanged.
+### 取消
 
-如果未启用、缺少配置、超时或天气 API 返回非 200，系统只省略天气提醒，预约成功响应保持不变。
+取消不删除记录，而是在同一事务中将 `appointments` 和对应 `stylist_schedules` 更新为 `cancelled`，从而保留关系并释放档期。
 
-## Failure Boundaries / 故障边界
+### 修改或改期
 
-When MCP is unavailable, consultation returns:
+PATCH 字段与数据库中的当前预约合并。服务变化时重新从 `SERVICE_CATALOG` 计算价格、时长和结束时间；目标档期检查排除预约自身；成功后保持 `appointment_id` 不变并递增 `version`。
 
-```json
-{
-  "code": "mcp_rag_unavailable",
-  "message": "知识检索服务当前不可用，请稍后重试。",
-  "trace_id": "..."
-}
+## SQLite 事务与并发边界
+
+创建、取消和修改都在一个 SQLAlchemy Session 和同一 SQLite Connection 中执行 `BEGIN IMMEDIATE`：
+
+```text
+BEGIN IMMEDIATE
+  → 读取并校验当前数据库事实
+  → 检查时间、营业时间和服务能力
+  → 检查重叠 busy 排班
+  → 同步更新 appointments 与 stylist_schedules
+  → COMMIT
+
+任一步失败
+  → ROLLBACK
 ```
 
-The appointment API does not depend on MCP and remains available.
+数据库还使用以下一致性保护：
 
-预约 API 不依赖 MCP；MCP 不可用时，预约创建和冲突校验仍保持可用。
+* INSERT 和 UPDATE Trigger 阻止同一发型师的重叠 `busy` 排班；
+* 相邻时间允许写入；
+* 不同发型师同一时间允许写入；
+* `expected_version` 与数据库 `version` 不一致时返回 `stale_state`；
+* 最终确认重新读取数据库，不信任旧候选。
+
+这些机制保护的是当前单个 SQLite 数据库中的并发写入一致性，不是分布式锁、分布式事务或跨数据库事务。其他 Session 或并发请求仍可能先完成提交，因此冲突必须在最终事务内复查。
+
+当前结构适合单应用实例、单 SQLite 数据库的工程原型。多实例部署需要服务型数据库、共享 Session，并重新评估事务隔离和并发策略。
+
+## 基于 MCP 的 RAG 知识咨询
+
+主项目是 MCP Client，独立 [MCP Knowledge Service](https://github.com/hyh0620/mcp-knowledge-service) 是 MCP Server：
+
+```text
+ConsultantAgent
+  ↓
+MCPKnowledgeGateway
+  ↓  MCP ClientSession / stdio
+MCP Knowledge Service
+  ↓
+Dense Retrieval + BM25
+  ↓
+RRF
+  ↓
+回答 + Citations
+```
+
+FastAPI lifespan 管理 MCP 子进程、`initialize`、`list_tools` 和会话复用；主项目调用真实 tool `query_knowledge_hub`。
+
+MCP 负责标准化跨进程工具调用，RAG 是知识服务内部的检索、融合和引用链路。ChromaDB 与 BM25 索引位于独立知识服务，不属于主项目的预约数据库。
+
+RAG 不参与价格、时长、发型师能力、排班、冲突或预约成功判断。
+
+## 天气后处理
+
+天气服务使用 Open-Meteo，不需要 API Key，默认查询上海。`.env.example` 默认 `WEATHER_ENABLED=true`。
+
+调用顺序为：
+
+```text
+聊天预约成功写入 SQLite
+→ 获得真实 appointment_id
+→ 查询预约时段天气
+→ 可选地追加中文提醒
+```
+
+天气不属于 MCP 或 RAG。候选搜索、等待确认、预约失败和 REST 预约创建接口不会触发天气；天气失败只省略提醒，不回滚已提交预约。
+
+## 故障边界
+
+| 故障 | 结果 |
+| --- | --- |
+| LLM 分类不确定 | 规则和活动 Session 状态继续保护明确预约流程 |
+| MCP Knowledge Service 不可用 | Consultation 返回稳定 503；Booking 不受影响 |
+| RAG 无结果 | 返回明确的空结果或降级信息，不编造排班 |
+| Open-Meteo 不可用 | 省略天气提醒，已保存预约保持成功 |
+| SQLite 写入失败 | 整个事务回滚，不返回预约成功 |
+| 候选确认前发生并发写入 | 最终复查返回冲突，不产生重复 `busy` 排班 |
+
+## 身份与生产化边界
+
+业务服务使用 `appointment_id` 与 `owner_id` 联合查询，在正常业务流程中限制跨 owner 的读取和修改。
+
+当前 `owner_id` 来自 REST 客户端提交的 `user_id` 或聊天 Session ID，没有经过登录认证，理论上可以被伪造。因此这是业务 owner 范围校验，不是安全意义上的身份隔离。
+
+生产环境应从 JWT、OAuth 或企业身份系统提供的可信认证上下文取得身份，并忽略客户端自行提交的 `user_id`。同时需要引入共享 Session、服务型数据库、可观测性和审计能力；当前项目不声称已经具备这些生产基础设施。
