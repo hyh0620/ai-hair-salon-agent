@@ -1,7 +1,11 @@
 """Build appointment response messages."""
 
+import logging
 from typing import Any, Dict, List
 from datetime import datetime
+
+
+logger = logging.getLogger(__name__)
 
 
 class MessageBuilder:
@@ -70,7 +74,10 @@ class MessageBuilder:
                 if hasattr(response, "content") and response.content.strip():
                     return f"\n机器人：{response.content.strip()}\n"
             except Exception as exc:
-                print(f"LLM生成推荐消息失败: {exc}")
+                logger.warning(
+                    "recommendation_message_llm_failed exception_type=%s",
+                    type(exc).__name__,
+                )
 
         return (
             f"\n机器人：抱歉，{original_stylist['name']}在{start_time}这个时间段已有预约。"
@@ -86,7 +93,10 @@ class MessageBuilder:
                 if hasattr(response, "content") and response.content.strip():
                     return f"\n机器人：{response.content.strip()}\n"
             except Exception as exc:
-                print(f"LLM生成拒绝消息失败: {exc}")
+                logger.warning(
+                    "recommendation_decline_llm_failed exception_type=%s",
+                    type(exc).__name__,
+                )
         return "\n机器人：好的，我理解。您可以换一个时间，或告诉我偏好的风格，我再为您重新推荐发型师。\n"
 
     def create_appointment_failure_message(self, stylist_name: str) -> str:

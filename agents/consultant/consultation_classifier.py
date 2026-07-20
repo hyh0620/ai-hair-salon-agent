@@ -6,6 +6,7 @@
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from .prompt_builder import PromptBuilder
+from config.model_provider import raise_chat_model_error
 
 
 class ConsultationClassifier:
@@ -22,7 +23,5 @@ class ConsultationClassifier:
             response = await self.llm.ainvoke([{"role": "user", "content": prompt}])
             result = response.content.strip().upper()
             return result == "YES"
-        except Exception as e:
-            print(f"分类判断出错：{e}")
-            # 如果分类出错，默认认为是相关的，避免误判
-            return True
+        except Exception as exc:
+            raise_chat_model_error(exc)

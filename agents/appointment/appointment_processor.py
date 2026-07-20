@@ -906,9 +906,8 @@ class AppointmentProcessor:
                         yield token
                 else:
                     yield result
-            except Exception as e:
-                yield f"[ERROR]处理请求时发生错误: {str(e)}\n"
-                yield self.message_builder.create_unrelated_message()
+            except Exception:
+                raise
         else:
             yield self.message_builder.create_unrelated_message()
     

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Request
 from sqlalchemy import text
 
+from config.model_provider import is_chat_model_configured
 from db.base import SessionManager
 from services.mcp_knowledge_gateway import get_mcp_knowledge_gateway
 
@@ -35,7 +34,7 @@ def build_health_status(request: Request) -> Dict[str, Any]:
         "database": database_status,
         "mcp_rag": mcp_status,
         "rag_collection": gateway.collection if mcp_status == "healthy" else "unavailable",
-        "llm": "configured" if _llm_configured() else "not_configured",
+        "llm": "configured" if is_chat_model_configured() else "not_configured",
         "weather": weather_status,
         "weather_provider": weather_provider,
         "weather_location": weather_location,
@@ -56,29 +55,9 @@ def _database_status() -> str:
             manager.close()
 
 
-def _llm_configured() -> bool:
-    load_dotenv()
-    provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
-    if provider == "azure":
-        keys = (
-            "AZURE_OPENAI_API_KEY",
-            "AZURE_OPENAI_ENDPOINT",
-            "AZURE_OPENAI_DEPLOYMENT",
-            "AZURE_OPENAI_VERSION",
-        )
-    else:
-        keys = ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL")
-    return all(_usable_env(key) for key in keys)
-
-
 def _weather_status() -> tuple[str, str, str]:
     from agents.appointment.appointment_processor import WeatherTool
 
     tool = WeatherTool()
     status = "configured" if tool.is_configured else "disabled"
     return status, tool.provider, tool.location_name
-
-
-def _usable_env(key: str) -> bool:
-    value = os.getenv(key, "")
-    return bool(value and not value.startswith("your_") and "YOUR_" not in value)

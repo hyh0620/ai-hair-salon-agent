@@ -1,7 +1,9 @@
 from dotenv import load_dotenv
 import uuid
+from datetime import datetime, timedelta
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from config.model_provider import create_chat_model
+from config.model_provider import ChatModelError, create_chat_model
+from services.service_catalog import SERVICE_CATALOG
 from .appointment.appointment_database import AppointmentDatabase
 from .appointment.availability_parser import (
     CONSULTATION,
@@ -187,6 +189,47 @@ class AppointmentAgent:
                     yield "[REPLY][预约机器人]已取消本次可用性查询。"
                     return
 
+            if detected_intent == CREATE_BOOKING:
+                stylist_names = [
+                    item["name"]
+                    for item in self.appointment_database.appointment_service.get_all_stylists()
+                ]
+                parsed_create = parse_availability_request(
+                    user_input,
+                    stylist_names=stylist_names,
+                )
+                has_search_window = bool(
+                    parsed_create.exact_time
+                    or (parsed_create.range_start and parsed_create.range_end)
+                )
+                deterministic_ready = bool(
+                    parsed_create.target_date
+                    and parsed_create.service_key
+                    and has_search_window
+                    and not parsed_create.stylist_name
+                )
+                if deterministic_ready and parsed_create.exact_time:
+                    service = SERVICE_CATALOG[parsed_create.service_key]
+                    start_time = datetime.combine(
+                        parsed_create.target_date,
+                        parsed_create.exact_time,
+                    )
+                    end_time = start_time + timedelta(minutes=service.standard_duration)
+                    deterministic_ready = (
+                        self.appointment_database.appointment_service.is_within_business_hours(
+                            start_time,
+                            end_time,
+                        )
+                    )
+                if deterministic_ready:
+                    async for token in self.appointment_processor.handle_availability_search(
+                        parsed_create,
+                        self.appointment_history,
+                        self.session_id,
+                    ):
+                        yield token
+                    return
+
             if detected_intent == SEARCH_AVAILABILITY or self.appointment_history.get("availability_search_active"):
                 stylist_names = [
                     item["name"]
@@ -289,7 +332,9 @@ class AppointmentAgent:
             ):
                 yield token
                 
-        except Exception as e:
+        except ChatModelError:
+            raise
+        except Exception:
             yield self.message_builder.create_parse_error_message()
 
     async def run(self, user_input=None):

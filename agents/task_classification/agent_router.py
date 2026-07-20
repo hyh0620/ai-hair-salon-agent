@@ -63,9 +63,9 @@ class AgentRouter:
         try:
             async for token in self.appointment_agent.run_stream(user_input=task):
                 yield token
-        except Exception as e:
-            yield f"[ERROR]预约处理失败: {str(e)}"
+        except Exception:
             self.state_manager.reset_to_classify()
+            raise
     
     async def route_to_consultation(self, task: str) -> AsyncGenerator[str, None]:
         """
@@ -92,9 +92,9 @@ class AgentRouter:
             async with self.consultant_agent as agent:
                 async for token in agent.consult_stream(task):
                     yield token
-        except Exception as e:
-            yield f"[ERROR]咨询处理失败: {str(e)}"
+        except Exception:
             self.state_manager.reset_to_classify()
+            raise
     
     async def handle_unsupported_task(self, category: str) -> AsyncGenerator[str, None]:
         """

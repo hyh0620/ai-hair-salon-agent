@@ -10,6 +10,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, AIMessage
+from config.model_provider import raise_chat_model_error
 
 
 class InputParser:
@@ -74,13 +75,15 @@ class InputParser:
         )
         
         # 流式调用LLM
-        response_stream = self.chain.stream({"history": history_str, "user_input": user_input})
         ai_content = ""
-        
-        for chunk in response_stream:
-            token = chunk.content if hasattr(chunk, "content") else str(chunk)
-            ai_content += token
-            yield token
+        try:
+            response_stream = self.chain.stream({"history": history_str, "user_input": user_input})
+            for chunk in response_stream:
+                token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                ai_content += token
+                yield token
+        except Exception as exc:
+            raise_chat_model_error(exc)
         
         # 添加AI回复到历史
         chat_history.add_message(AIMessage(content=ai_content))

@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from config.trace_context import get_trace_id
-from config.model_provider import create_chat_model
+from config.model_provider import create_chat_model, is_chat_model_configured
 from services.mcp_knowledge_gateway import (
     KnowledgeQueryResult,
     MCPRAGUnavailable,
@@ -82,7 +80,7 @@ async def query_consultation(request: Request, payload: ConsultationQueryRequest
 
     service_context = _service_catalog_context(payload.question, retrieval.content)
     llm_status = "not_configured"
-    if _llm_is_configured():
+    if is_chat_model_configured():
         try:
             answer = await _generate_llm_answer(payload.question, retrieval, service_context)
             llm_status = "available"
@@ -183,23 +181,3 @@ def _service_catalog_context(question: str, retrieved_content: str) -> str:
         f"{service.name}: {service.standard_price}元 / {service.standard_duration}分钟"
         for service in services
     )
-
-
-def _llm_is_configured() -> bool:
-    load_dotenv()
-    provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
-    if provider == "azure":
-        keys = [
-            "AZURE_OPENAI_API_KEY",
-            "AZURE_OPENAI_ENDPOINT",
-            "AZURE_OPENAI_DEPLOYMENT",
-            "AZURE_OPENAI_VERSION",
-        ]
-    else:
-        keys = ["LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"]
-    return all(_usable_env(key) for key in keys)
-
-
-def _usable_env(key: str) -> bool:
-    value = os.getenv(key, "")
-    return bool(value and not value.startswith("your_") and "YOUR_" not in value)

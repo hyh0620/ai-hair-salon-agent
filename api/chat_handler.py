@@ -25,6 +25,8 @@ from agents.appointment.lifecycle_parser import (
 )
 from agents.consultant_agent import ConsultantAgent
 from agents.task_classification_agent import TaskClassificationAgent
+from config.model_provider import classify_chat_model_error, chat_model_user_message
+from config.trace_context import get_trace_id
 
 logger = logging.getLogger(__name__)
 
@@ -227,8 +229,10 @@ async def ProcessUserInput_stream(
 ):
     """Stream a response through the Agent instance owned by one browser session."""
     del state, context
-    session = _chat_sessions.get_or_create(session_id)
+    trace_id = get_trace_id(default=uuid.uuid4().hex)
+    session = None
     try:
+        session = _chat_sessions.get_or_create(session_id)
         async with session.lock:
             lifecycle_intent = detect_lifecycle_intent(user_input)
             detected_intent = lifecycle_intent or detect_message_intent(user_input)
@@ -250,8 +254,33 @@ async def ProcessUserInput_stream(
                 stream = session.task_agent.route_task_stream(user_input, effective_route)
             else:
                 stream = session.task_agent.classify_task_stream(user_input)
+            emitted = False
             async for token in stream:
-                yield token
+                if token is None:
+                    continue
+                token_text = str(token)
+                if not token_text:
+                    continue
+                emitted = True
+                yield token_text
+            if not emitted:
+                logger.warning(
+                    "chat_empty_stream trace_id=%s session_id=%s effective_route=%s",
+                    trace_id,
+                    session.session_id,
+                    effective_route,
+                )
+                yield "[REPLY][系统]服务未返回有效内容，请稍后重试。"
     except Exception as exc:
-        logger.exception("chat_processing_failed session_id=%s", session.session_id)
-        yield f"[ERROR]聊天模型未正确配置或调用失败：{exc}\n"
+        reason = classify_chat_model_error(exc)
+        resolved_session_id = session.session_id if session else "uninitialized"
+        logger.warning(
+            "chat_processing_failed trace_id=%s session_id=%s llm_status=%s "
+            "exception_type=%s",
+            trace_id,
+            resolved_session_id,
+            reason,
+            type(exc).__name__,
+            exc_info=reason == "unexpected_error",
+        )
+        yield f"[REPLY][系统]{chat_model_user_message(reason)}"
