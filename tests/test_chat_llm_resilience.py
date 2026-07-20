@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from agents.appointment.availability_parser import CREATE_BOOKING, detect_message_intent
@@ -16,6 +17,7 @@ from config.model_provider import (
     classify_chat_model_error,
     create_chat_model,
 )
+from config import model_provider
 from config.time_config import time_config
 from services.appointment_service import AppointmentService
 from services.stylist_service import StylistService
@@ -67,6 +69,41 @@ def test_unconfigured_model_uses_non_networking_placeholder(monkeypatch, tmp_pat
     assert model.reason == "not_configured"
     with pytest.raises(ChatModelError, match="not_configured"):
         model.invoke("需要模型解析的消息")
+
+
+def test_chat_http_clients_use_configured_local_address(monkeypatch):
+    sync_transport = object()
+    async_transport = object()
+    sync_client = object()
+    async_client = object()
+    monkeypatch.setenv("LLM_HTTP_LOCAL_ADDRESS", "0.0.0.0")
+    monkeypatch.setattr(
+        httpx,
+        "HTTPTransport",
+        lambda *, local_address: sync_transport if local_address == "0.0.0.0" else None,
+    )
+    monkeypatch.setattr(
+        httpx,
+        "AsyncHTTPTransport",
+        lambda *, local_address: async_transport if local_address == "0.0.0.0" else None,
+    )
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda *, transport: sync_client if transport is sync_transport else None,
+    )
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *, transport: async_client if transport is async_transport else None,
+    )
+
+    clients = model_provider._chat_http_clients()
+
+    assert clients == {
+        "http_client": sync_client,
+        "http_async_client": async_client,
+    }
 
 
 def test_unconfigured_llm_stream_returns_clear_message_and_ends(monkeypatch, tmp_path):
