@@ -15,6 +15,7 @@
 from langchain_core.prompts import PromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from typing import Dict, Any
+from config.model_provider import raise_chat_model_error
 
 
 class TaskClassifier:
@@ -72,9 +73,8 @@ class TaskClassifier:
                 
             return category
             
-        except Exception as e:
-            print(f"任务分类失败: {str(e)}")
-            return 'other'  # 发生错误时默认归类为其他
+        except Exception as exc:
+            raise_chat_model_error(exc)
     
     def get_category_description(self, category: str) -> str:
         """获取分类类别的描述信息"""

@@ -521,28 +521,29 @@
 
     function updateLastBotMessage(text) {
         if (lastBotBubble) {
-            // 用正则分割所有 [THOUGHT]、[REPLY]、[STATE] 标签及其内容
-            const pattern = /(\[THOUGHT[^\]]*\][\s\S]*?)(?=\[THOUGHT|\[REPLY|\[STATE|$)|(\[REPLY[^\]]*\][\s\S]*?)(?=\[THOUGHT|\[REPLY|\[STATE|$)/g;
+            const pattern = /\[(THOUGHT|REPLY|ERROR)[^\]]*\]([\s\S]*?)(?=\[(?:THOUGHT|REPLY|ERROR|STATE)|$)/g;
             let result = [];
             let match;
             while ((match = pattern.exec(text)) !== null) {
-                if (match[1]) {
-                    // THOUGHT - 思考过程，用淡色显示
-                    const thoughtText = match[1].replace(/\[THOUGHT[^\]]*\]/, '').trim().replace(/\n/g, '<br>');
-                    result.push(`<div class="bot-thought">${thoughtText}</div>`);
-                } else if (match[2]) {
-                    // REPLY - 最终回复，使用突出颜色
-                    const replyText = match[2].replace(/\[REPLY[^\]]*\]/, '').trim().replace(/\n/g, '<br>');
+                const messageType = match[1];
+                const plainText = match[2].trim();
+                const safeText = escapeHtml(plainText).replace(/\n/g, '<br>');
+                if (messageType === 'THOUGHT') {
+                    result.push(`<div class="bot-thought">${safeText}</div>`);
+                } else if (messageType === 'ERROR') {
+                    result.push(`<div class="bot-error">${safeText || '服务暂时不可用，请稍后重试。'}</div>`);
+                } else if (messageType === 'REPLY') {
+                    const replyText = safeText;
                     
                     // 检查回复类型并应用不同样式
                     let styledReply = replyText;
-                    if (replyText.includes('预约成功') || replyText.includes('已为您预约')) {
+                    if (plainText.includes('预约成功') || plainText.includes('已为您预约')) {
                         // 成功消息
                         styledReply = `<div class="bot-success">✅ ${replyText}</div>`;
-                    } else if (replyText.includes('抱歉') || replyText.includes('失败') || replyText.includes('不空闲')) {
+                    } else if (plainText.includes('抱歉') || plainText.includes('失败') || plainText.includes('不空闲')) {
                         // 错误消息
                         styledReply = `<div class="bot-error">❌ ${replyText}</div>`;
-                    } else if (replyText.includes('请问') || replyText.includes('需要')) {
+                    } else if (plainText.includes('请问') || plainText.includes('需要')) {
                         // 询问消息
                         styledReply = `<div class="bot-info">💬 ${replyText}</div>`;
                     } else {
@@ -552,6 +553,9 @@
                     
                     result.push(styledReply);
                 }
+            }
+            if (!result.length && text.trim()) {
+                result.push(`<div class="bot-reply">${escapeHtml(text.trim()).replace(/\n/g, '<br>')}</div>`);
             }
             lastBotBubble.innerHTML = result.join('');
             
@@ -572,6 +576,16 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    }
+
+    function renderBotError(message) {
+        if (!lastBotBubble) return;
+        const safeMessage = escapeHtml(message || '抱歉，服务暂时不可用，请稍后再试。');
+        lastBotBubble.innerHTML = `<div class="bot-error">${safeMessage}</div>`;
+    }
+
+    function hasVisibleBotMessage() {
+        return Boolean(lastBotBubble && lastBotBubble.textContent.trim());
     }
 
     async function selectMessageRoute(text) {
@@ -613,7 +627,6 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({question: text})
         });
-        hideTypingIndicator();
         if (!res.ok) {
             const error = await res.json().catch(() => ({}));
             const detail = error.detail || {};
@@ -630,16 +643,21 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({message: text, session_id: sessionId, route})
         });
-        hideTypingIndicator();
+        if (!res.ok) throw new Error(`chat_stream_http_${res.status}`);
+        if (!res.body) throw new Error('chat_stream_body_unavailable');
         const reader = res.body.getReader();
         let botMsg = '';
-        let decoder = new TextDecoder();
+        const decoder = new TextDecoder();
         while (true) {
             const {done, value} = await reader.read();
             if (done) break;
             botMsg += decoder.decode(value, {stream: true});
             updateLastBotMessage(botMsg);
         }
+        botMsg += decoder.decode();
+        if (!botMsg.trim()) throw new Error('chat_stream_empty');
+        updateLastBotMessage(botMsg);
+        return botMsg;
     }
 
     chatForm.onsubmit = async function(e) {
@@ -670,10 +688,13 @@
                 await callStreamingAgent(text, routeResult.route);
             }
         } catch (error) {
-            hideTypingIndicator();
-            lastBotBubble.innerHTML = '抱歉，服务暂时不可用，请稍后再试。';
+            renderBotError('抱歉，服务暂时不可用，请稍后再试。');
             console.error('Chat error:', error);
         } finally {
+            hideTypingIndicator();
+            if (!hasVisibleBotMessage()) {
+                renderBotError('服务未返回有效内容，请稍后重试。');
+            }
             // 恢复发送按钮
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> 发送';

@@ -69,10 +69,9 @@ class ClassificationProcessor:
                 async for token in self.agent_router.route_by_state(task):
                     yield token
                     
-        except Exception as e:
-            # 处理异常情况
-            yield f"[ERROR]处理任务时发生错误: {str(e)}"
+        except Exception:
             self.state_manager.force_reset()
+            raise
     
     async def process_task_sync(self, task: str) -> str:
         """

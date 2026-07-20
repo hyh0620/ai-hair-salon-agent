@@ -117,7 +117,10 @@ def parse_lifecycle_request(
 def extract_appointment_id(text: str) -> Optional[int]:
     normalized = _compact(text)
     patterns = (
-        r"预约(?:编号|id|ID)?[：:#]?([1-9]\d*)",
+        r"预约(?:编号|id)[：:#]?([1-9]\d*)",
+        r"预约[：:#]([1-9]\d*)",
+        # Keep the historical “预约123” form, but do not treat a date year as an ID.
+        r"预约([1-9]\d*)(?![\d年月日./-])",
         r"appointment(?:id)?[：:#]?([1-9]\d*)",
     )
     for pattern in patterns:
