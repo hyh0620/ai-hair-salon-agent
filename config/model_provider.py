@@ -177,6 +177,7 @@ def create_chat_model(temperature: float = 0) -> BaseChatModel:
                 temperature=temperature,
                 timeout=timeout,
                 max_retries=max_retries,
+                **_chat_http_clients(),
             )
     except Exception as exc:
         reason = classify_chat_model_error(exc)
@@ -222,6 +223,24 @@ def create_embedding_model():
 def _usable_env(name: str) -> bool:
     value = os.getenv(name, "").strip()
     return bool(value and not value.startswith("your_") and "YOUR_" not in value)
+
+
+def _chat_http_clients() -> dict[str, object]:
+    """Build optional clients for hosts that require an explicit local address."""
+    local_address = _env("LLM_HTTP_LOCAL_ADDRESS")
+    if not local_address:
+        return {}
+
+    import httpx
+
+    return {
+        "http_client": httpx.Client(
+            transport=httpx.HTTPTransport(local_address=local_address)
+        ),
+        "http_async_client": httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(local_address=local_address)
+        ),
+    }
 
 
 def _positive_float_env(name: str, default: float) -> float:
