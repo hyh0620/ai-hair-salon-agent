@@ -14,7 +14,12 @@ from .appointment.availability_parser import (
 )
 from .appointment.appointment_processor import AppointmentProcessor
 from .appointment.input_parser import InputParser
-from .appointment.lifecycle_parser import LIFECYCLE_INTENTS, detect_lifecycle_intent
+from .appointment.lifecycle_parser import (
+    LIFECYCLE_INTENTS,
+    detect_lifecycle_intent,
+    is_abort_current_operation,
+    is_bare_cancel,
+)
 from .appointment.lifecycle_processor import AppointmentLifecycleProcessor
 from .appointment.message_builder import MessageBuilder
 from .appointment.stylist_finder import StylistFinder
@@ -108,7 +113,7 @@ class AppointmentAgent:
             self.lifecycle_processor = processor
         return processor
 
-    async def run_stream(self, user_input=None):
+    async def run_stream(self, user_input=None, owner_id=None):
         """
         流式处理用户预约请求的主函数
         
@@ -116,6 +121,7 @@ class AppointmentAgent:
         """
         if user_input is None:
             user_input = input("用户：")
+        resolved_owner_id = str(owner_id or self.session_id)
         
         try:
             detected_intent = detect_message_intent(user_input)
@@ -124,26 +130,25 @@ class AppointmentAgent:
             lifecycle_active = AppointmentLifecycleProcessor.is_active(
                 self.appointment_history
             )
-            creation_confirmation_active = any(
+            creation_flow_active = any(
                 self.appointment_history.get(key)
                 for key in (
                     "awaiting_confirmation",
                     "awaiting_slot_selection",
                     "awaiting_slot_confirmation",
+                    "availability_search_active",
+                    "requested_date",
+                    "requested_exact_time",
+                    "requested_range_start",
+                    "project",
                 )
             )
-            if lifecycle_active or (
-                lifecycle_intent in LIFECYCLE_INTENTS
-                and not creation_confirmation_active
-            ):
+            if lifecycle_active:
                 lifecycle_processor = lifecycle_processor or self._get_lifecycle_processor()
-                if not lifecycle_active:
-                    self._reset_business_history()
                 lifecycle_result = lifecycle_processor.handle(
                     user_input,
                     self.appointment_history,
-                    # A chat session is the lifecycle owner marker, not an authenticated user ID.
-                    self.session_id,
+                    resolved_owner_id,
                     intent=lifecycle_intent,
                 )
                 yield f"[REPLY][预约机器人]{lifecycle_result.message}"
@@ -151,12 +156,48 @@ class AppointmentAgent:
                     self._reset_state_after_lifecycle()
                 return
 
+            if lifecycle_intent in LIFECYCLE_INTENTS:
+                lifecycle_processor = lifecycle_processor or self._get_lifecycle_processor()
+                # A saved-appointment operation interrupts only transient creation state.
+                self._reset_business_history()
+                lifecycle_result = lifecycle_processor.handle(
+                    user_input,
+                    self.appointment_history,
+                    resolved_owner_id,
+                    intent=lifecycle_intent,
+                )
+                yield f"[REPLY][预约机器人]{lifecycle_result.message}"
+                if lifecycle_result.complete:
+                    self._reset_state_after_lifecycle()
+                return
+
+            if is_abort_current_operation(user_input) or (
+                is_bare_cancel(user_input) and creation_flow_active
+            ):
+                self._reset_state_after_lifecycle()
+                yield (
+                    "[REPLY][预约机器人]已退出本次预约操作，"
+                    "已有预约不会受到影响。"
+                )
+                return
+
+            if is_bare_cancel(user_input):
+                self._reset_state_after_lifecycle()
+                yield (
+                    "[REPLY][预约机器人]你是要取消已保存的预约，还是退出当前操作？"
+                    "可以回复“取消预约”或“取消本次操作”。"
+                )
+                return
+
             if self.appointment_history.get("awaiting_slot_confirmation"):
                 if detected_intent in {CREATE_BOOKING, SEARCH_AVAILABILITY}:
                     self.appointment_processor.clear_pending_availability(self.appointment_history)
                 else:
                     async for token in self.appointment_processor.handle_availability_confirmation(
-                        user_input, self.appointment_history, self.session_id
+                        user_input,
+                        self.appointment_history,
+                        self.session_id,
+                        owner_id=resolved_owner_id,
                     ):
                         yield token
                     if self.appointment_history.get("availability_flow_complete"):
@@ -168,7 +209,10 @@ class AppointmentAgent:
                     self.appointment_processor.clear_pending_availability(self.appointment_history)
                 else:
                     async for token in self.appointment_processor.handle_availability_selection(
-                        user_input, self.appointment_history, self.session_id
+                        user_input,
+                        self.appointment_history,
+                        self.session_id,
+                        owner_id=resolved_owner_id,
                     ):
                         yield token
                     if self.appointment_history.get("availability_flow_complete"):
@@ -226,6 +270,7 @@ class AppointmentAgent:
                         parsed_create,
                         self.appointment_history,
                         self.session_id,
+                        owner_id=resolved_owner_id,
                     ):
                         yield token
                     return
@@ -237,7 +282,10 @@ class AppointmentAgent:
                 ]
                 parsed = parse_availability_request(user_input, stylist_names=stylist_names)
                 async for token in self.appointment_processor.handle_availability_search(
-                    parsed, self.appointment_history, self.session_id
+                    parsed,
+                    self.appointment_history,
+                    self.session_id,
+                    owner_id=resolved_owner_id,
                 ):
                     yield token
                 return
@@ -267,7 +315,10 @@ class AppointmentAgent:
                     self.appointment_history
                 )
                 async for token in self.appointment_processor.handle_availability_search(
-                    parsed, self.appointment_history, self.session_id
+                    parsed,
+                    self.appointment_history,
+                    self.session_id,
+                    owner_id=resolved_owner_id,
                 ):
                     yield token
                 return
@@ -292,7 +343,9 @@ class AppointmentAgent:
                 recommendation_pending = False
                 booking_incomplete = False
                 async for token in self.appointment_processor.handle_complete_appointment(
-                    self.appointment_history, self.session_id
+                    self.appointment_history,
+                    self.session_id,
+                    owner_id=resolved_owner_id,
                 ):
                     # 检查是否有推荐等待确认
                     if token == "[SIGNAL]recommendation_pending":
@@ -320,6 +373,7 @@ class AppointmentAgent:
                 async for token in self.appointment_processor.handle_complete_appointment(
                     self.appointment_history,
                     self.session_id,
+                    owner_id=resolved_owner_id,
                 ):
                     yield token
                 return
@@ -337,10 +391,10 @@ class AppointmentAgent:
         except Exception:
             yield self.message_builder.create_parse_error_message()
 
-    async def run(self, user_input=None):
+    async def run(self, user_input=None, owner_id=None):
         """Non-streaming wrapper used by the task router."""
         tokens = []
-        async for token in self.run_stream(user_input):
+        async for token in self.run_stream(user_input, owner_id=owner_id):
             tokens.append(token)
         return "".join(tokens)
 

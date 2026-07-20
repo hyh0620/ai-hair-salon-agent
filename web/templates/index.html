@@ -456,8 +456,11 @@
     const clearBtn = document.getElementById('clear-btn');
     const typingIndicator = document.getElementById('typing-indicator');
     const sessionStorageKey = 'salon_chat_session_id';
+    const ownerStorageKey = 'salon_anonymous_owner_id';
     let lastBotBubble = null;
-    let sessionId = getOrCreateSessionId();
+    const browserIdentity = getOrCreateBrowserIdentity();
+    let sessionId = browserIdentity.sessionId;
+    const ownerId = browserIdentity.ownerId;
 
     function createSessionId() {
         if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -466,12 +469,30 @@
         return `session_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     }
 
-    function getOrCreateSessionId() {
-        const existing = window.localStorage.getItem(sessionStorageKey);
-        if (existing) return existing;
-        const created = createSessionId();
-        window.localStorage.setItem(sessionStorageKey, created);
-        return created;
+    function getOrCreateBrowserIdentity() {
+        const existingSessionId = window.localStorage.getItem(sessionStorageKey);
+        const existingOwnerId = window.localStorage.getItem(ownerStorageKey);
+        let sessionId = existingSessionId;
+        let ownerId = existingOwnerId;
+
+        if (existingOwnerId) {
+            if (!sessionId) {
+                sessionId = createSessionId();
+                window.localStorage.setItem(sessionStorageKey, sessionId);
+            }
+            return {sessionId, ownerId};
+        }
+        if (existingSessionId) {
+            // Migrate appointments created by the previous single-ID browser contract.
+            ownerId = existingSessionId;
+        } else {
+            sessionId = createSessionId();
+            ownerId = createSessionId();
+            while (ownerId === sessionId) ownerId = createSessionId();
+            window.localStorage.setItem(sessionStorageKey, sessionId);
+        }
+        window.localStorage.setItem(ownerStorageKey, ownerId);
+        return {sessionId, ownerId};
     }
 
     function addMessage(text, sender) {
@@ -592,7 +613,7 @@
         const res = await fetch('/api/chat/route', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({message: text, session_id: sessionId})
+            body: JSON.stringify({message: text, session_id: sessionId, owner_id: ownerId})
         });
         if (!res.ok) throw new Error('route selection failed');
         return await res.json();
@@ -641,7 +662,7 @@
         const res = await fetch('/chat/stream', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({message: text, session_id: sessionId, route})
+            body: JSON.stringify({message: text, session_id: sessionId, owner_id: ownerId, route})
         });
         if (!res.ok) throw new Error(`chat_stream_http_${res.status}`);
         if (!res.body) throw new Error('chat_stream_body_unavailable');

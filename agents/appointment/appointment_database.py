@@ -41,7 +41,7 @@ class AppointmentDatabase:
     
     def save_appointment(self, stylist_id: str, start_time: datetime, 
                         end_time: datetime, appointment_history: Dict[str, Any], 
-                        session_id: str) -> bool:
+                        session_id: str, owner_id: str | None = None) -> bool:
         """Compatibility wrapper that preserves the historical bool contract."""
         return self.save_appointment_detailed(
             stylist_id,
@@ -49,6 +49,7 @@ class AppointmentDatabase:
             end_time,
             appointment_history,
             session_id,
+            owner_id=owner_id,
         ).success
 
     def save_appointment_detailed(
@@ -58,16 +59,22 @@ class AppointmentDatabase:
         end_time: datetime,
         appointment_history: Dict[str, Any],
         session_id: str,
+        owner_id: str | None = None,
     ) -> AppointmentSaveResult:
         """Persist an appointment and retain its database identifiers."""
         try:
             result = self.appointment_service.save_appointment_detailed(
-                stylist_id, start_time, end_time, appointment_history, session_id
+                stylist_id,
+                start_time,
+                end_time,
+                appointment_history,
+                session_id,
+                owner_id=owner_id,
             )
             if result.success:
                 # 记录用户行为
                 self._record_user_behavior(start_time, end_time, stylist_id, 
-                                         appointment_history, session_id)
+                                         appointment_history, session_id, owner_id)
             return result
             
         except Exception as e:
@@ -84,7 +91,7 @@ class AppointmentDatabase:
     
     def _record_user_behavior(self, start_time: datetime, end_time: datetime,
                             stylist_id: str, appointment_history: Dict[str, Any], 
-                            session_id: str):
+                            session_id: str, owner_id: str | None = None):
         """记录用户预约行为"""
         try:
             details = self.appointment_service.build_appointment_details(appointment_history)
@@ -101,8 +108,9 @@ class AppointmentDatabase:
                 'stylist_id': stylist_id
             }
 
-            # Session IDs provide request tracing here; they are not authenticated identities.
-            tracking_user_id = str(appointment_history.get("user_id") or session_id)
+            tracking_user_id = str(
+                owner_id or appointment_history.get("user_id") or session_id
+            )
             # 通过Services层记录用户行为
             self.user_behavior_service.record_behavior(
                 user_id=tracking_user_id,

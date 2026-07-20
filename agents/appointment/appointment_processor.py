@@ -6,6 +6,7 @@
 
 import os
 import asyncio
+import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -29,6 +30,11 @@ from services.availability_service import AvailabilitySearchRequest, Availabilit
 from services.service_catalog import SERVICE_CATALOG, normalize_service, structured_stylist_profile
 
 logger = logging.getLogger(__name__)
+
+
+def _identifier_log_value(value: Any) -> str:
+    digest = hashlib.sha256(str(value or "unknown").encode("utf-8")).hexdigest()[:12]
+    return f"id-{digest}"
 
 POSITIVE_CONFIRMATIONS = {
     "确认", "好的", "好", "可以", "是", "是的", "没问题", "同意",
@@ -583,6 +589,7 @@ class AppointmentProcessor:
         parsed: ParsedAvailabilityRequest,
         appointment_history: Dict[str, Any],
         session_id: str,
+        owner_id: Optional[str] = None,
         now: Optional[datetime] = None,
     ) -> AsyncGenerator[str, None]:
         """Merge fuzzy slots, query persisted schedules, and retain structured candidates."""
@@ -628,8 +635,10 @@ class AppointmentProcessor:
                 "time": "请告诉我希望预约上午、下午、晚上或具体几点。",
             }
             logger.info(
-                "availability_search_incomplete session_id=%s service=%s specialty=%s missing=%s",
+                "availability_search_incomplete session_id=%s owner_id=%s service=%s "
+                "specialty=%s missing=%s",
                 session_id,
+                _identifier_log_value(owner_id or session_id),
                 appointment_history.get("service_key"),
                 appointment_history.get("specialty"),
                 ",".join(missing),
@@ -694,9 +703,11 @@ class AppointmentProcessor:
         matching_stylists = self.availability_service.matching_stylists(search_request)
         options = self.availability_service.search_available_stylists(search_request, now=now)
         logger.info(
-            "availability_search session_id=%s intent=search_availability date=%s time_range=%s-%s "
+            "availability_search session_id=%s owner_id=%s intent=search_availability "
+            "date=%s time_range=%s-%s "
             "service=%s specialty=%s candidate_count=%s",
             session_id,
+            _identifier_log_value(owner_id or session_id),
             target_date,
             range_start,
             range_end,
@@ -745,6 +756,7 @@ class AppointmentProcessor:
         user_input: str,
         appointment_history: Dict[str, Any],
         session_id: str,
+        owner_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         normalized = str(user_input or "").strip().lower().rstrip("，。！？,.!?")
         if normalized == "换一批":
@@ -770,8 +782,9 @@ class AppointmentProcessor:
         appointment_history["awaiting_slot_selection"] = False
         appointment_history["awaiting_slot_confirmation"] = True
         logger.info(
-            "availability_option_selected session_id=%s option_id=%s stylist_id=%s",
+            "availability_option_selected session_id=%s owner_id=%s option_id=%s stylist_id=%s",
             session_id,
+            _identifier_log_value(owner_id or session_id),
             option["option_id"],
             option["stylist_id"],
         )
@@ -782,6 +795,7 @@ class AppointmentProcessor:
         user_input: str,
         appointment_history: Dict[str, Any],
         session_id: str,
+        owner_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         normalized = str(user_input or "").strip().lower().rstrip("，。！？,.!?")
         if normalized in NEGATIVE_CONFIRMATIONS:
@@ -822,11 +836,18 @@ class AppointmentProcessor:
             "stylist_name": option["stylist_name"],
         })
         appointment_history["awaiting_slot_confirmation"] = False
-        reply = await self._process_successful_appointment(stylist, appointment_history, session_id)
+        reply = await self._process_successful_appointment(
+            stylist,
+            appointment_history,
+            session_id,
+            owner_id=owner_id,
+        )
         success = bool(appointment_history.get("appointment_id"))
         logger.info(
-            "availability_booking session_id=%s option_id=%s booking_status=%s reason=%s",
+            "availability_booking session_id=%s owner_id=%s option_id=%s "
+            "booking_status=%s reason=%s",
             session_id,
+            _identifier_log_value(owner_id or session_id),
             option["option_id"],
             "confirmed" if success else "failed",
             "" if success else "slot_conflict_or_persistence_error",
@@ -911,8 +932,12 @@ class AppointmentProcessor:
         else:
             yield self.message_builder.create_unrelated_message()
     
-    async def handle_complete_appointment(self, appointment_history: Dict[str, Any], 
-                                        session_id: str) -> AsyncGenerator[str, None]:
+    async def handle_complete_appointment(
+        self,
+        appointment_history: Dict[str, Any],
+        session_id: str,
+        owner_id: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
         """处理预约信息完整的情况"""
         # 检查是否用户拒绝了推荐
         if appointment_history.get('recommendation_declined'):
@@ -944,7 +969,12 @@ class AppointmentProcessor:
             # 标记为推荐发型师用于成功消息显示
             stylist['is_recommendation'] = True
             stylist['original_stylist'] = appointment_history.get('original_stylist')
-            reply = await self._process_successful_appointment(stylist, appointment_history, session_id)
+            reply = await self._process_successful_appointment(
+                stylist,
+                appointment_history,
+                session_id,
+                owner_id=owner_id,
+            )
             yield f"[REPLY][预约机器人]{reply}"
             if appointment_history.get("booking_failure_reason"):
                 self._clear_requested_time(appointment_history)
@@ -996,7 +1026,12 @@ class AppointmentProcessor:
                 return
             else:
                 # 正常预约流程
-                reply = await self._process_successful_appointment(stylist, appointment_history, session_id)
+                reply = await self._process_successful_appointment(
+                    stylist,
+                    appointment_history,
+                    session_id,
+                    owner_id=owner_id,
+                )
                 yield f"[REPLY][预约机器人]{reply}"
                 if appointment_history.get("booking_failure_reason"):
                     self._clear_requested_time(appointment_history)
@@ -1022,8 +1057,13 @@ class AppointmentProcessor:
             return "outside_business_hours"
         return None
     
-    async def _process_successful_appointment(self, stylist: Dict[str, Any],
-                                           appointment_history: Dict[str, Any], session_id: str) -> str:
+    async def _process_successful_appointment(
+        self,
+        stylist: Dict[str, Any],
+        appointment_history: Dict[str, Any],
+        session_id: str,
+        owner_id: Optional[str] = None,
+    ) -> str:
         """处理预约成功的情况，并在配置完整时追加可选天气出行提醒。"""
         details = self.appointment_database.appointment_service.build_appointment_details(appointment_history)
         appointment_history.update(details)
@@ -1033,7 +1073,12 @@ class AppointmentProcessor:
         )
         # 保存预约到数据库
         saved = self.appointment_database.save_appointment_detailed(
-            stylist["id"], start_time, end_time, appointment_history, session_id
+            stylist["id"],
+            start_time,
+            end_time,
+            appointment_history,
+            session_id,
+            owner_id=owner_id,
         )
         if saved.success:
             appointment_history.pop("booking_failure_reason", None)

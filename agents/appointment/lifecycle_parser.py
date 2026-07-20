@@ -27,6 +27,14 @@ LIFECYCLE_INTENTS = {
     RESCHEDULE_APPOINTMENT,
 }
 
+ABORT_CURRENT_OPERATION_PHRASES = {
+    "取消本次操作",
+    "退出当前操作",
+    "不用了",
+    "先不预约了",
+    "退出预约流程",
+}
+
 
 @dataclass(frozen=True)
 class ParsedLifecycleRequest:
@@ -51,7 +59,7 @@ class ParsedLifecycleRequest:
 
 
 def detect_lifecycle_intent(text: str) -> Optional[str]:
-    normalized = _compact(text)
+    normalized = _compact_action(text)
     if not normalized:
         return None
 
@@ -81,13 +89,22 @@ def detect_lifecycle_intent(text: str) -> Optional[str]:
     ):
         return GET_APPOINTMENT
     if re.search(
-        r"查看我的预约|查询我的预约|我的预约(?:记录|信息|情况)?|"
-        r"我预约了什么|我订了什么|有没有预约|预约记录|"
+        r"^(?:查看|查询|看看)(?:我的)?预约(?:记录|信息|情况)?$|"
+        r"^我的预约(?:记录|信息|情况)?$|"
+        r"我预约了什么|我订了什么|有没有预约|^预约记录$|"
         r"帮我看看.{0,10}预约|我.{0,10}预约是什么时间",
         normalized,
     ):
         return LIST_APPOINTMENTS
     return None
+
+
+def is_abort_current_operation(text: str) -> bool:
+    return _compact_action(text) in ABORT_CURRENT_OPERATION_PHRASES
+
+
+def is_bare_cancel(text: str) -> bool:
+    return _compact_action(text) == "取消"
 
 
 def parse_lifecycle_request(
@@ -155,3 +172,7 @@ def _target_service(text: str) -> Optional[str]:
 
 def _compact(text: str) -> str:
     return re.sub(r"\s+", "", (text or "").strip())
+
+
+def _compact_action(text: str) -> str:
+    return re.sub(r"[，。！？,.!?\s]+$", "", _compact(text).lower())

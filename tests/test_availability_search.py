@@ -82,8 +82,9 @@ def test_backend_overrides_frontend_consultation_for_availability(monkeypatch):
         ),
     )
 
-    async def route_task_stream(message, route):
+    async def route_task_stream(message, route, owner_id=None):
         session.task_agent.effective_route = route
+        session.task_agent.owner_id = owner_id
         yield route
 
     session.task_agent.route_task_stream = route_task_stream
@@ -95,12 +96,14 @@ def test_backend_overrides_frontend_consultation_for_availability(monkeypatch):
             async for token in chat_handler.ProcessUserInput_stream(
                 "今天下午哪些理发师有空？",
                 session_id="availability-session",
+                owner_id="availability-owner",
                 route="consultation",
             )
         ])
 
     assert asyncio.run(collect()) == "appointment"
     assert session.task_agent.effective_route == "appointment"
+    assert session.task_agent.owner_id == "availability-owner"
 
 
 def test_relative_date_period_and_clock_parsing():
@@ -340,7 +343,8 @@ def test_cancel_clears_candidates_without_save_or_weather(monkeypatch, tmp_path)
     asyncio.run(run_agent(agent, "第一个"))
     reply = asyncio.run(run_agent(agent, "取消"))
 
-    assert "没有写入排班" in reply
+    assert "已退出本次预约操作" in reply
+    assert "已有预约不会受到影响" in reply
     stylist = appointment_service.get_stylist_by_name("周晴")
     assert appointment_service.get_stylist_schedules(stylist["id"], date(2026, 7, 16)) == []
     assert "pending_availability_options" not in agent.appointment_history

@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from api.chat_handler import (
     ProcessUserInput_stream,
     get_chat_session_registry,
@@ -28,6 +28,12 @@ class ChatRequest(BaseModel):
     message: str
     state: str | None = None
     session_id: str | None = None
+    owner_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
     route: str | None = None
 
 
@@ -38,6 +44,12 @@ class ChatResetRequest(BaseModel):
 class ChatRouteRequest(BaseModel):
     message: str
     session_id: str | None = None
+    owner_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
 @router.get("/", response_class=HTMLResponse, summary="主页")
 async def read_root(request: Request):
@@ -70,6 +82,7 @@ async def chat_stream_endpoint(chat: ChatRequest):
         async for token in ProcessUserInput_stream(
             chat.message,
             session_id=chat.session_id,
+            owner_id=chat.owner_id,
             route=chat.route,
         ):
             yield token
@@ -82,6 +95,7 @@ async def chat_endpoint(chat: ChatRequest):
         async for token in ProcessUserInput_stream(
             chat.message,
             session_id=chat.session_id,
+            owner_id=chat.owner_id,
             route=chat.route,
         ):
             yield token

@@ -68,26 +68,35 @@ class TaskClassificationAgent:
     # 主要接口方法
     # ===========================================
     
-    async def classify_task(self, task):
+    async def classify_task(self, task, owner_id=None):
         """分类任务"""
-        return await self.classification_processor.process_task_sync(task)
+        return await self.classification_processor.process_task_sync(
+            task,
+            owner_id=owner_id,
+        )
 
-    async def classify_task_stream(self, task):
+    async def classify_task_stream(self, task, owner_id=None):
         """流式分类任务（主要入口）"""
-        async for token in self.classification_processor.process_task_stream(task):
+        async for token in self.classification_processor.process_task_stream(
+            task,
+            owner_id=owner_id,
+        ):
             yield token
 
-    async def route_task_stream(self, task, route):
+    async def route_task_stream(self, task, route, owner_id=None):
         """Route a message selected by the stateless backend pre-router."""
         if route == "appointment":
             if self.state_manager.is_in_appointment_flow():
-                stream = self.agent_router.route_by_state(task)
+                stream = self.agent_router.route_by_state(task, owner_id=owner_id)
             else:
-                stream = self.agent_router.route_to_appointment(task)
+                stream = self.agent_router.route_to_appointment(task, owner_id=owner_id)
         elif route == "consultation":
             stream = self.agent_router.route_to_consultation(task)
         else:
-            stream = self.classification_processor.process_task_stream(task)
+            stream = self.classification_processor.process_task_stream(
+                task,
+                owner_id=owner_id,
+            )
         async for token in stream:
             yield token
 
