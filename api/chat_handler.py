@@ -35,6 +35,9 @@ SESSION_TTL_SECONDS = 60 * 60
 MAX_CHAT_SESSIONS = 100
 _SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _OWNER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_ACCOUNT_OWNER_PATTERN = re.compile(
+    r"^account:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 
 @dataclass
@@ -118,9 +121,18 @@ def _normalized_message(user_input: str) -> str:
     return re.sub(r"[，。！？,.!?]+$", "", normalized)
 
 
-def resolve_owner_id(owner_id: Optional[str], session_id: str) -> str:
+def resolve_owner_id(
+    owner_id: Optional[str],
+    session_id: str,
+    *,
+    authenticated: bool = False,
+) -> str:
     """Validate the anonymous owner or temporarily fall back to the chat session."""
     candidate = (owner_id or "").strip()
+    if authenticated:
+        if _ACCOUNT_OWNER_PATTERN.fullmatch(candidate):
+            return candidate
+        raise ValueError("invalid_owner_id")
     if not candidate:
         logger.warning(
             "chat_owner_fallback_deprecated session_id=%s owner_id=%s",
@@ -128,7 +140,7 @@ def resolve_owner_id(owner_id: Optional[str], session_id: str) -> str:
             _identifier_log_value(session_id),
         )
         return session_id
-    if not _OWNER_ID_PATTERN.fullmatch(candidate):
+    if candidate.lower().startswith("account:") or not _OWNER_ID_PATTERN.fullmatch(candidate):
         raise ValueError("invalid_owner_id")
     return candidate
 
@@ -257,6 +269,7 @@ async def ProcessUserInput_stream(
     context=None,
     session_id: Optional[str] = None,
     owner_id: Optional[str] = None,
+    owner_authenticated: bool = False,
     route: Optional[str] = None,
 ):
     """Stream a response through the Agent instance owned by one browser session."""
@@ -266,7 +279,11 @@ async def ProcessUserInput_stream(
     try:
         session = _chat_sessions.get_or_create(session_id)
         async with session.lock:
-            resolved_owner_id = resolve_owner_id(owner_id, session.session_id)
+            resolved_owner_id = resolve_owner_id(
+                owner_id,
+                session.session_id,
+                authenticated=owner_authenticated,
+            )
             lifecycle_intent = detect_lifecycle_intent(user_input)
             detected_intent = lifecycle_intent or detect_message_intent(user_input)
             effective_route = route_user_message(user_input, session)

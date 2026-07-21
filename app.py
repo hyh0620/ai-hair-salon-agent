@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 OPENAPI_TAGS = [
     {"name": "系统状态", "description": "应用、数据库和外部知识服务健康状态。"},
+    {"name": "账户认证", "description": "可选本地账户、Argon2 密码与 JWT 身份。"},
     {"name": "预约管理", "description": "由确定性服务目录、营业时间、排班和冲突规则执行预约。"},
     {"name": "咨询服务", "description": "通过 MCP Knowledge Service 检索知识并返回 citations。"},
     {"name": "任务分类", "description": "识别用户意图并在预约与咨询职责之间路由。"},

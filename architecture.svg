@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
   <title id="title">AI Hair Salon Agent 系统架构</title>
-  <desc id="desc">中心路由协调预约与咨询 Agent。预约链路通过确定性业务服务、SQLite 事务和并发保护生成预约编号；咨询链路通过 MCP 调用独立 RAG 知识服务并返回来源引用；天气仅在聊天预约成功后非阻塞调用。</desc>
+  <desc id="desc">FastAPI 在入口解析可选 JWT 账户或游客身份，中心路由协调预约与咨询 Agent。预约链路通过确定性业务服务、SQLite 事务和并发保护生成预约编号；咨询链路通过 MCP 调用独立 RAG 知识服务并返回来源引用；天气仅在聊天预约成功后非阻塞调用。</desc>
 
   <defs>
     <marker id="arrow-slate" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -53,12 +53,12 @@
 
   <rect x="298" y="112" width="190" height="94" rx="8" class="entry-node"/>
   <text x="393" y="146" text-anchor="middle" class="node-title">FastAPI</text>
-  <text x="393" y="172" text-anchor="middle" class="node-text">Web · REST · lifespan</text>
+  <text x="393" y="172" text-anchor="middle" class="node-text">Web · REST · Auth / CSRF</text>
 
   <rect x="548" y="112" width="280" height="94" rx="8" class="entry-node"/>
-  <text x="688" y="143" text-anchor="middle" class="node-title">Session 与业务预路由</text>
-  <text x="688" y="168" text-anchor="middle" class="node-text">活动状态优先 · 确定性规则</text>
-  <text x="688" y="188" text-anchor="middle" class="tiny">async lock · TTL · 容量限制</text>
+  <text x="688" y="143" text-anchor="middle" class="node-title">RequestIdentity + Session</text>
+  <text x="688" y="168" text-anchor="middle" class="node-text">JWT 账户 / 游客 owner · 状态优先</text>
+  <text x="688" y="188" text-anchor="middle" class="tiny">账户校验 · async lock · TTL</text>
 
   <rect x="888" y="112" width="300" height="94" rx="8" class="entry-node"/>
   <text x="1038" y="143" text-anchor="middle" class="node-title">TaskClassificationAgent</text>
@@ -120,7 +120,7 @@
 
   <rect x="1100" y="470" width="210" height="105" rx="8" class="data-node"/>
   <text x="1205" y="500" text-anchor="middle" class="node-title">SQLite</text>
-  <text x="1205" y="526" text-anchor="middle" class="node-text">appointments</text>
+  <text x="1205" y="526" text-anchor="middle" class="node-text">users · appointments</text>
   <text x="1205" y="548" text-anchor="middle" class="tiny">stylists · stylist_schedules</text>
 
   <rect x="1350" y="470" width="170" height="105" rx="8" class="data-node"/>

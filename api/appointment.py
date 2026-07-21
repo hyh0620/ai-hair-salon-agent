@@ -3,15 +3,20 @@
 import logging
 from datetime import date, datetime
 from typing import Any, Dict, Literal, Optional
-from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from config.trace_context import get_trace_id
 from services.availability_service import AvailabilitySearchRequest, AvailabilityService
 from services.service_catalog import normalize_specialty
+from .auth_dependencies import (
+    AuthenticatedPrincipal,
+    enforce_csrf,
+    get_request_principal,
+    resolve_request_identity,
+)
 from .core.response_models import (
     AppointmentCreateResponse,
     AppointmentCancelRequest,
@@ -129,14 +134,20 @@ def _raise_for_save_failure(reason: str) -> None:
     description=(
         "使用服务目录、营业时间、发型师排班和 SQLite 冲突校验创建预约。"
         "未指定发型师时只返回真实候选；显式提交所选发型师后才执行原子写入。"
+        "登录账户的 owner 来自 JWT；游客必须提交普通 user_id。"
         "LLM、MCP 与 RAG 不参与最终业务裁决。"
     ),
 )
-async def create_appointment(request: AppointmentRequest):
+async def create_appointment(
+    request: AppointmentRequest,
+    http_request: Request,
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_request_principal),
+):
     """Create an appointment using catalog, schedule and conflict rules."""
     trace_id = get_trace_id()
-    # This fallback is request-scoped tracking only, not an authenticated user identity.
-    tracking_user_id = request.user_id or f"api-session-{trace_id or uuid4().hex}"
+    identity = resolve_request_identity(principal, request.user_id)
+    enforce_csrf(http_request, principal)
+    tracking_user_id = identity.owner_id
     logger.info("appointment_route trace_id=%s service=%s stylist_id=%s", trace_id, request.project or request.service, request.stylist_id)
     try:
         appointment_service, finder, availability_service = _build_services()
@@ -197,6 +208,7 @@ async def create_appointment(request: AppointmentRequest):
             end_time=end_time,
             appointment_history=details,
             session_id=tracking_user_id,
+            owner_id=tracking_user_id,
         )
         if not saved.success:
             logger.info(
@@ -252,7 +264,7 @@ def _lifecycle_http_status(result_status: str) -> int:
     if result_status in {"invalid_time", "outside_business_hours", "service_not_supported"}:
         return status.HTTP_400_BAD_REQUEST
     if result_status == "validation_error":
-        return status.HTTP_422_UNPROCESSABLE_ENTITY
+        return status.HTTP_422_UNPROCESSABLE_CONTENT
     if result_status == "persistence_error":
         return status.HTTP_500_INTERNAL_SERVER_ERROR
     return status.HTTP_200_OK
@@ -287,18 +299,20 @@ def _operation_response(result, message: str):
     responses=_LIFECYCLE_ERROR_RESPONSES,
     summary="查询当前调用者的预约",
     description=(
-        "按 user_id 查询当前调用者范围内的预约。默认只返回未来、confirmed 状态的预约，"
-        "并按开始时间和预约 ID 稳定排序。该 user_id 是业务所有权标识，不是生产级认证。"
+        "登录请求使用 JWT 身份；游客按 user_id 查询。默认只返回未来、confirmed 状态的预约，"
+        "并按开始时间和预约 ID 稳定排序。游客 user_id 不是认证凭据。"
     ),
 )
 async def list_appointments(
-    user_id: str = Query(min_length=1),
+    user_id: Optional[str] = Query(default=None, min_length=1),
     future_only: bool = True,
     target_date: Optional[date] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     appointment_status: Literal["confirmed", "cancelled", "completed", "all"] = "confirmed",
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_request_principal),
 ):
+    identity = resolve_request_identity(principal, user_id)
     appointment_service, _, _ = _build_services()
     statuses = (
         ("confirmed", "cancelled", "completed")
@@ -306,7 +320,7 @@ async def list_appointments(
         else (appointment_status,)
     )
     result = appointment_service.list_user_appointments(
-        user_id,
+        identity.owner_id,
         future_only=future_only,
         target_date=target_date,
         date_from=date_from,
@@ -333,18 +347,21 @@ async def list_appointments(
     responses=_LIFECYCLE_ERROR_RESPONSES,
     summary="查询单笔预约",
     description=(
-        "使用 appointment_id 与 user_id 联合查询最新数据库事实。不存在或不属于当前调用者时，"
+        "使用 appointment_id 与可信登录身份或游客 user_id 联合查询最新数据库事实。"
+        "不存在或不属于当前调用者时，"
         "统一返回 not_found，避免泄露其他调用者的预约信息。"
     ),
 )
 async def get_appointment(
     appointment_id: int,
-    user_id: str = Query(min_length=1),
+    user_id: Optional[str] = Query(default=None, min_length=1),
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_request_principal),
 ):
+    identity = resolve_request_identity(principal, user_id)
     appointment_service, _, _ = _build_services()
     result = appointment_service.get_user_appointment(
         appointment_id,
-        user_id,
+        identity.owner_id,
         trace_id=get_trace_id(),
     )
     if not result.success:
@@ -369,13 +386,17 @@ async def get_appointment(
 )
 async def cancel_appointment(
     appointment_id: int,
-    request: AppointmentCancelRequest,
+    payload: AppointmentCancelRequest,
+    request: Request,
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_request_principal),
 ):
+    identity = resolve_request_identity(principal, payload.user_id)
+    enforce_csrf(request, principal)
     appointment_service, _, _ = _build_services()
     result = appointment_service.cancel_appointment(
         appointment_id,
-        request.user_id,
-        request.expected_version,
+        identity.owner_id,
+        payload.expected_version,
         trace_id=get_trace_id(),
     )
     messages = {
@@ -400,18 +421,22 @@ async def cancel_appointment(
 )
 async def update_appointment(
     appointment_id: int,
-    request: AppointmentUpdateRequest,
+    payload: AppointmentUpdateRequest,
+    request: Request,
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_request_principal),
 ):
+    identity = resolve_request_identity(principal, payload.user_id)
+    enforce_csrf(request, principal)
     appointment_service, _, _ = _build_services()
     result = appointment_service.update_appointment(
         appointment_id,
-        request.user_id,
-        request.expected_version,
-        target_date=request.target_date,
-        target_time=request.start_time,
-        stylist_id=request.stylist_id,
-        stylist_name=request.stylist_name,
-        service_value=request.project or request.service,
+        identity.owner_id,
+        payload.expected_version,
+        target_date=payload.target_date,
+        target_time=payload.start_time,
+        stylist_id=payload.stylist_id,
+        stylist_name=payload.stylist_name,
+        service_value=payload.project or payload.service,
         trace_id=get_trace_id(),
     )
     messages = {

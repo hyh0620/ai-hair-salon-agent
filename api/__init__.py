@@ -1,6 +1,7 @@
 """API router registration."""
 
 from .appointment import router as appointment_router
+from .auth import router as auth_router
 from .consultation import router as consultation_router
 from .health import router as health_router
 from .knowledge import router as knowledge_router
@@ -11,6 +12,7 @@ from .user_behavior_analysis import router_underscore as user_behavior_analysis_
 
 api_routers = [
     health_router,
+    auth_router,
     appointment_router,
     consultation_router,
     task_router,

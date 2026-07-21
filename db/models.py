@@ -1,8 +1,22 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import declarative_base, relationship
 from config.time_config import utc_now_naive
 
 Base = declarative_base()
+
+
+class User(Base):
+    """Local account identity; passwords are stored only as Argon2 hashes."""
+
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True)
+    email = Column(String(320), nullable=False, unique=True, index=True)
+    display_name = Column(String(80), nullable=False)
+    password_hash = Column(String(512), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
+    updated_at = Column(DateTime, default=utc_now_naive, nullable=False)
 
 
 class Stylist(Base):
