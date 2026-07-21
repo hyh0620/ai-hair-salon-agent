@@ -315,17 +315,20 @@ LLM 的作用是理解和组织，不是替代业务事实来源。
 
 | 项目 | 当前结果 |
 | --- | ---: |
-| pytest | 262 passed |
+| pytest | 292 passed |
 | Failed | 0 |
 | Warnings | 0 |
 
 ```bash
 python -m pip check
-python -m pytest -W error::DeprecationWarning
-python -m compileall agents api services db config eval web
+bash scripts/test_hermetic.sh
+python -m compileall agents api services db config eval web tests
 ```
 
-普通测试使用临时 SQLite、Fake/Mock LLM、Mock Weather、Mock MCP 和固定时间，不依赖用户本地数据库或真实外部服务。
+普通 pytest 是 hermetic 测试：`tests/conftest.py` 在应用模块导入前设置
+`EXTERNAL_CALL_POLICY=deny`，使用临时 SQLite、Fake/Mock LLM、Mock Weather、
+Mock MCP 和固定时间，并阻断非本机网络与外部 DNS。CI 不读取 Provider Secret，
+也不依赖用户本地数据库或真实外部服务。
 
 ### 已保存的评估快照
 
@@ -423,8 +426,8 @@ python -m pip install \
   -r requirements-dev.txt
 
 python -m pip check
-python -m pytest -W error::DeprecationWarning
-python -m compileall agents api services db config eval web
+bash scripts/test_hermetic.sh
+python -m compileall agents api services db config eval web tests
 ```
 
 依赖文件职责：
@@ -434,6 +437,24 @@ python -m compileall agents api services db config eval web
 * `constraints-py312.txt`：Python 3.12 下已验证的完整精确版本。
 
 `constraints-py312.txt` 本身不会安装软件，需要与对应的 `-r` 文件一起使用。
+
+### 外部 Provider 隔离
+
+普通测试和 CI 统一使用：
+
+```bash
+bash scripts/test_hermetic.sh
+```
+
+不连接外部 Provider 的本地 UI 验收使用临时 SQLite 和测试认证配置：
+
+```bash
+bash scripts/run_isolated_validation.sh
+```
+
+该脚本仅绑定 `127.0.0.1`，退出时清理临时数据库。真实 LLM、Embedding、
+MCP 或天气集成验证必须在独立的显式流程中设置 `EXTERNAL_CALL_POLICY=allow`；
+它不属于默认 pytest 或 Required Check。不要在测试命令、日志或仓库文件中写入真实 Key。
 
 ---
 

@@ -26,6 +26,7 @@ from agents.appointment.availability_parser import (
     parse_selection_time,
 )
 from config.time_config import time_config
+from config.external_calls import ExternalCallBlockedError, assert_external_call_allowed
 from services.availability_service import AvailabilitySearchRequest, AvailabilityService
 from services.service_catalog import SERVICE_CATALOG, normalize_service, structured_stylist_profile
 
@@ -81,6 +82,15 @@ class WeatherContextResult:
     precipitation_probability: Optional[float] = None
     precipitation: Optional[float] = None
     weather_code: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class WeatherProviderResponse:
+    """Internal response from the real or injected weather provider adapter."""
+
+    status_code: int
+    payload: Optional[Dict[str, Any]] = None
+    reason: str = ""
 
 
 class WeatherTool(BaseTool):
@@ -154,51 +164,78 @@ class WeatherTool(BaseTool):
             self._log_result(parsed_time, None, "omitted", "past_appointment")
             return WeatherContextResult(status="omitted", reason="past_appointment")
 
+        params = {
+            "latitude": self._latitude,
+            "longitude": self._longitude,
+            "hourly": ",".join([
+                "temperature_2m",
+                "apparent_temperature",
+                "relative_humidity_2m",
+                "precipitation_probability",
+                "precipitation",
+                "weather_code",
+                "wind_speed_10m",
+            ]),
+            "timezone": self._timezone_name,
+            "forecast_days": self._forecast_days,
+        }
+
         try:
-            import aiohttp
+            response = await self._fetch_hourly_forecast(params)
+            if response.reason:
+                self._log_result(parsed_time, None, "unavailable", response.reason)
+                return WeatherContextResult(status="unavailable", reason=response.reason)
 
-            params = {
-                "latitude": self._latitude,
-                "longitude": self._longitude,
-                "hourly": ",".join([
-                    "temperature_2m",
-                    "apparent_temperature",
-                    "relative_humidity_2m",
-                    "precipitation_probability",
-                    "precipitation",
-                    "weather_code",
-                    "wind_speed_10m",
-                ]),
-                "timezone": self._timezone_name,
-                "forecast_days": self._forecast_days,
-            }
-            timeout = aiohttp.ClientTimeout(total=self._timeout_seconds)
+            if response.status_code == 200:
+                result = self._select_forecast(parsed_time, response.payload or {})
+                self._log_result(parsed_time, result.forecast_time, result.status, result.reason)
+                return result
 
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(self._base_url, params=params) as response:
-                    if response.status == 200:
-                        try:
-                            data = await response.json()
-                        except Exception:
-                            self._log_result(parsed_time, None, "unavailable", "malformed_response")
-                            return WeatherContextResult(status="unavailable", reason="malformed_response")
-                        result = self._select_forecast(parsed_time, data)
-                        self._log_result(parsed_time, result.forecast_time, result.status, result.reason)
-                        return result
-
-                    reason = "http_4xx" if 400 <= response.status < 500 else "http_5xx"
-                    self._log_result(parsed_time, None, "unavailable", reason)
-                    return WeatherContextResult(
-                        status="unavailable",
-                        reason=reason,
-                        http_status=response.status,
-                    )
+            reason = "http_4xx" if 400 <= response.status_code < 500 else "http_5xx"
+            self._log_result(parsed_time, None, "unavailable", reason)
+            return WeatherContextResult(
+                status="unavailable",
+                reason=reason,
+                http_status=response.status_code,
+            )
+        except ExternalCallBlockedError:
+            self._log_result(parsed_time, None, "unavailable", "external_call_blocked")
+            return WeatherContextResult(status="unavailable", reason="external_call_blocked")
         except asyncio.TimeoutError:
             self._log_result(parsed_time, None, "unavailable", "timeout")
             return WeatherContextResult(status="unavailable", reason="timeout")
         except Exception:
             self._log_result(parsed_time, None, "unavailable", "network_error")
             return WeatherContextResult(status="unavailable", reason="network_error")
+
+    async def _fetch_hourly_forecast(
+        self,
+        params: Dict[str, Any],
+    ) -> WeatherProviderResponse:
+        """Call the real Open-Meteo adapter after the centralized policy guard."""
+        assert_external_call_allowed(
+            "weather:open-meteo",
+            "agents.appointment.appointment_processor.WeatherTool._fetch_hourly_forecast",
+        )
+
+        import aiohttp
+
+        timeout = aiohttp.ClientTimeout(total=self._timeout_seconds)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(self._base_url, params=params) as response:
+                if response.status != 200:
+                    return WeatherProviderResponse(status_code=response.status)
+                try:
+                    payload = await response.json()
+                except Exception:
+                    return WeatherProviderResponse(
+                        status_code=response.status,
+                        reason="malformed_response",
+                    )
+                return WeatherProviderResponse(
+                    status_code=response.status,
+                    payload=payload,
+                )
 
     def _select_forecast(self, appointment_time: datetime, data: Dict[str, Any]) -> WeatherContextResult:
         try:

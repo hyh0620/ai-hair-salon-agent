@@ -19,8 +19,13 @@ from typing import Any, Dict, List
 
 import requests
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from config.external_calls import assert_external_call_allowed
+
+
 REPORT_PATH = PROJECT_ROOT / "eval" / "reports" / "mcp_runtime_failure_latest.json"
 
 
@@ -144,6 +149,10 @@ def booking_payloads() -> tuple[Dict[str, Any], Dict[str, Any]]:
 
 
 def main() -> int:
+    assert_external_call_allowed(
+        "mcp:knowledge-service",
+        "eval.mcp_runtime_failure_e2e.main",
+    )
     args = parse_args()
     client = Client(args.base_url, args.timeout)
 

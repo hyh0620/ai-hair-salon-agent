@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import NoReturn
+from typing import Any, AsyncIterator, Iterator, NoReturn
 
-from dotenv import load_dotenv
+from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import (
     AzureChatOpenAI,
@@ -18,9 +18,11 @@ from langchain_openai import (
     ChatOpenAI,
     OpenAIEmbeddings,
 )
-from pydantic import SecretStr
+from pydantic import PrivateAttr, SecretStr
 
-load_dotenv()
+from config.external_calls import assert_external_call_allowed, load_runtime_dotenv
+
+load_runtime_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,124 @@ class UnavailableChatModel(BaseChatModel):
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         del messages, stop, run_manager, kwargs
         raise ChatModelError(self.reason)
+
+
+class GuardedChatModel(BaseChatModel):
+    """Delegate to a real provider while enforcing policy at every call path."""
+
+    provider_name: str
+    call_location: str = "config.model_provider.GuardedChatModel"
+    _delegate: BaseChatModel = PrivateAttr()
+
+    def __init__(self, delegate: BaseChatModel, provider_name: str):
+        super().__init__(provider_name=provider_name)
+        self._delegate = delegate
+
+    @property
+    def _llm_type(self) -> str:
+        return f"guarded-{self.provider_name}-chat-model"
+
+    def _guard(self, operation: str) -> None:
+        assert_external_call_allowed(
+            f"llm:{self.provider_name}",
+            f"{self.call_location}.{operation}",
+        )
+
+    def invoke(self, input: Any, config=None, *, stop=None, **kwargs):
+        self._guard("invoke")
+        return self._delegate.invoke(input, config=config, stop=stop, **kwargs)
+
+    async def ainvoke(self, input: Any, config=None, *, stop=None, **kwargs):
+        self._guard("ainvoke")
+        return await self._delegate.ainvoke(input, config=config, stop=stop, **kwargs)
+
+    def stream(self, input: Any, config=None, *, stop=None, **kwargs) -> Iterator[Any]:
+        self._guard("stream")
+        return self._delegate.stream(input, config=config, stop=stop, **kwargs)
+
+    async def astream(
+        self,
+        input: Any,
+        config=None,
+        *,
+        stop=None,
+        **kwargs,
+    ) -> AsyncIterator[Any]:
+        self._guard("astream")
+        async for chunk in self._delegate.astream(
+            input,
+            config=config,
+            stop=stop,
+            **kwargs,
+        ):
+            yield chunk
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        self._guard("generate")
+        return self._delegate._generate(
+            messages,
+            stop=stop,
+            run_manager=run_manager,
+            **kwargs,
+        )
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        self._guard("agenerate")
+        return await self._delegate._agenerate(
+            messages,
+            stop=stop,
+            run_manager=run_manager,
+            **kwargs,
+        )
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        self._guard("stream")
+        yield from self._delegate._stream(
+            messages,
+            stop=stop,
+            run_manager=run_manager,
+            **kwargs,
+        )
+
+    async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+        self._guard("astream")
+        async for chunk in self._delegate._astream(
+            messages,
+            stop=stop,
+            run_manager=run_manager,
+            **kwargs,
+        ):
+            yield chunk
+
+
+class GuardedEmbeddings(Embeddings):
+    """Guard every operation delegated to a real embedding provider."""
+
+    def __init__(self, delegate: Embeddings, provider_name: str):
+        self._delegate = delegate
+        self.provider_name = provider_name
+
+    def _guard(self, operation: str) -> None:
+        assert_external_call_allowed(
+            f"embedding:{self.provider_name}",
+            f"config.model_provider.GuardedEmbeddings.{operation}",
+        )
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self._guard("embed_documents")
+        return self._delegate.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        self._guard("embed_query")
+        return self._delegate.embed_query(text)
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        self._guard("aembed_documents")
+        return await self._delegate.aembed_documents(texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        self._guard("aembed_query")
+        return await self._delegate.aembed_query(text)
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -154,12 +274,17 @@ def create_chat_model(temperature: float = 0) -> BaseChatModel:
     if configuration_status != "configured":
         return UnavailableChatModel(reason=configuration_status)
 
+    assert_external_call_allowed(
+        f"llm:{provider}",
+        "config.model_provider.create_chat_model",
+    )
+
     timeout = _positive_float_env("LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS)
     max_retries = _bounded_int_env("LLM_MAX_RETRIES", DEFAULT_LLM_MAX_RETRIES, 0, 3)
 
     try:
         if provider == "azure":
-            return AzureChatOpenAI(
+            model = AzureChatOpenAI(
                 azure_deployment=_env("AZURE_OPENAI_DEPLOYMENT"),
                 api_version=_env("AZURE_OPENAI_VERSION"),
                 temperature=temperature,
@@ -168,9 +293,10 @@ def create_chat_model(temperature: float = 0) -> BaseChatModel:
                 timeout=timeout,
                 max_retries=max_retries,
             )
+            return GuardedChatModel(model, provider)
 
         if provider in CHAT_PROVIDERS:
-            return ChatOpenAI(
+            model = ChatOpenAI(
                 model=_env("LLM_MODEL", "qwen-plus") or "qwen-plus",
                 api_key=SecretStr(_env("LLM_API_KEY", "") or ""),
                 base_url=_env("LLM_BASE_URL"),
@@ -179,6 +305,7 @@ def create_chat_model(temperature: float = 0) -> BaseChatModel:
                 max_retries=max_retries,
                 **_chat_http_clients(),
             )
+            return GuardedChatModel(model, provider)
     except Exception as exc:
         reason = classify_chat_model_error(exc)
         logger.warning(
@@ -196,16 +323,22 @@ def create_embedding_model():
     """Create an embedding model from environment configuration."""
     provider = (_env("EMBEDDING_PROVIDER") or get_model_provider()).strip().lower()
 
+    assert_external_call_allowed(
+        f"embedding:{provider}",
+        "config.model_provider.create_embedding_model",
+    )
+
     if provider == "azure":
-        return AzureOpenAIEmbeddings(
+        model = AzureOpenAIEmbeddings(
             azure_deployment=_env("AZURE_OPENAI_DEPLOYMENT_EMBEDDING"),
             api_key=SecretStr(_env("AZURE_OPENAI_API_KEY", "") or ""),
             api_version=_env("AZURE_OPENAI_EMBEDDING_VERSION", "2023-05-15"),
             azure_endpoint=_env("AZURE_OPENAI_ENDPOINT_EMBEDDING"),
         )
+        return GuardedEmbeddings(model, provider)
 
     if provider in EMBEDDING_PROVIDERS:
-        return OpenAIEmbeddings(
+        model = OpenAIEmbeddings(
             model=_env("EMBEDDING_MODEL", "text-embedding-v3") or "text-embedding-v3",
             api_key=SecretStr(_env("EMBEDDING_API_KEY") or _env("LLM_API_KEY", "") or ""),
             base_url=_env("EMBEDDING_BASE_URL") or _env("LLM_BASE_URL"),
@@ -213,6 +346,7 @@ def create_embedding_model():
             # strings; disable token-id batching to send plain text.
             check_embedding_ctx_length=False,
         )
+        return GuardedEmbeddings(model, provider)
 
     raise ValueError(
         f"Unsupported EMBEDDING_PROVIDER={provider!r}. "
@@ -230,6 +364,11 @@ def _chat_http_clients() -> dict[str, object]:
     local_address = _env("LLM_HTTP_LOCAL_ADDRESS")
     if not local_address:
         return {}
+
+    assert_external_call_allowed(
+        f"llm:{get_model_provider()}",
+        "config.model_provider._chat_http_clients",
+    )
 
     import httpx
 

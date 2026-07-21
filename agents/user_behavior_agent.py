@@ -9,12 +9,12 @@
 
 import logging
 from typing import Dict, Any, Optional
-from dotenv import load_dotenv
+from config.external_calls import load_runtime_dotenv
 from config.model_provider import create_chat_model
 from services.service_catalog import parse_duration_minutes
 from .user_behavior import PatternAnalyzer, BehaviorRecorder, PreferenceManager
 
-load_dotenv()
+load_runtime_dotenv()
 
 
 class UserBehaviorAgent:

@@ -1,8 +1,8 @@
-from dotenv import load_dotenv
 import uuid
 from datetime import datetime, timedelta
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from config.model_provider import ChatModelError, create_chat_model
+from config.external_calls import load_runtime_dotenv
 from services.service_catalog import SERVICE_CATALOG
 from .appointment.appointment_database import AppointmentDatabase
 from .appointment.availability_parser import (
@@ -24,7 +24,7 @@ from .appointment.lifecycle_processor import AppointmentLifecycleProcessor
 from .appointment.message_builder import MessageBuilder
 from .appointment.stylist_finder import StylistFinder
 
-load_dotenv()
+load_runtime_dotenv()
 
 
 class AppointmentAgent:

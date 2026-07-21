@@ -83,6 +83,8 @@ def test_chat_http_clients_use_configured_local_address(monkeypatch):
     async_transport = object()
     sync_client = object()
     async_client = object()
+    # Exercise normal runtime construction with every HTTP object replaced by a fake.
+    monkeypatch.setenv("EXTERNAL_CALL_POLICY", "allow")
     monkeypatch.setenv("LLM_HTTP_LOCAL_ADDRESS", "0.0.0.0")
     monkeypatch.setattr(
         httpx,
