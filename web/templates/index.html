@@ -226,6 +226,10 @@
             font-weight: 600;
         }
 
+        .auth-field[hidden] {
+            display: none !important;
+        }
+
         .auth-field input {
             width: 100%;
             padding: 10px 12px;
@@ -627,7 +631,7 @@
             <form class="auth-form" id="auth-form">
                 <label class="auth-field" id="display-name-field" hidden>
                     显示名称
-                    <input id="auth-display-name" name="display_name" type="text" maxlength="80" autocomplete="name">
+                    <input id="auth-display-name" name="display_name" type="text" maxlength="80" autocomplete="off" disabled>
                 </label>
                 <label class="auth-field">
                     邮箱
@@ -639,7 +643,7 @@
                 </label>
                 <label class="auth-field" id="confirm-password-field" hidden>
                     确认密码
-                    <input id="auth-confirm-password" name="confirm_password" type="password" minlength="8" maxlength="128" autocomplete="new-password">
+                    <input id="auth-confirm-password" name="confirm_password" type="password" minlength="8" maxlength="128" autocomplete="off" disabled>
                 </label>
                 <p class="auth-note" id="auth-note">登录后，账户预约由服务器验证的身份管理。</p>
                 <div class="auth-error" id="auth-error" role="alert"></div>
@@ -777,6 +781,7 @@
     function openAuthModal(mode) {
         authMode = mode;
         const registering = mode === 'register';
+        authForm.reset();
         authTitle.textContent = registering ? '注册账户' : '登录账户';
         authSubmit.textContent = registering ? '注册并登录' : '登录';
         authNote.textContent = registering
@@ -784,11 +789,17 @@
             : '登录后，账户预约由服务器验证的身份管理。';
         displayNameField.hidden = !registering;
         confirmPasswordField.hidden = !registering;
+        authDisplayName.disabled = !registering;
+        authConfirmPassword.disabled = !registering;
         authDisplayName.required = registering;
         authConfirmPassword.required = registering;
+        authDisplayName.autocomplete = registering ? 'name' : 'off';
+        authConfirmPassword.autocomplete = registering ? 'new-password' : 'off';
+        authEmail.required = true;
+        authEmail.autocomplete = 'email';
+        authPassword.required = true;
         authPassword.autocomplete = registering ? 'new-password' : 'current-password';
         authError.textContent = '';
-        authForm.reset();
         authModal.hidden = false;
         (registering ? authDisplayName : authEmail).focus();
     }
@@ -1077,7 +1088,7 @@
         authSubmit.disabled = true;
         authError.textContent = '';
         const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
-        const body = {email: authEmail.value, password: authPassword.value};
+        const body = {email: authEmail.value.trim(), password: authPassword.value};
         if (authMode === 'register') body.display_name = authDisplayName.value;
         try {
             const response = await fetch(endpoint, {

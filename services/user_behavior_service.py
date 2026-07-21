@@ -21,12 +21,18 @@ class UserBehaviorService:
         self.db_router = DatabaseRouter(db_path)
         self.user_behavior_repo = self.db_router.user_behavior
     
-    def record_behavior(self, user_id: str, action_type: str, action_data: Dict[str, Any] = None,
-                       stylist_id: str = None, session_id: str = "default_session") -> bool:
+    def record_behavior(
+        self,
+        owner_id: str,
+        action_type: str,
+        action_data: Dict[str, Any] = None,
+        stylist_id: str = None,
+        session_id: str = None,
+    ) -> bool:
         """记录用户行为"""
         try:
             behavior_id = self.user_behavior_repo.record_behavior(
-                user_id=user_id,
+                user_id=owner_id,
                 action_type=action_type,
                 action_data=action_data,
                 stylist_id=stylist_id,
@@ -34,7 +40,11 @@ class UserBehaviorService:
             )
             
             if behavior_id:
-                logger.info(f"用户行为记录成功：用户={user_id}, 行为={action_type}, ID={behavior_id}")
+                logger.info(
+                    "user_behavior_recorded action=%s behavior_id=%s",
+                    action_type,
+                    behavior_id,
+                )
                 return True
             return False
             
@@ -42,38 +52,69 @@ class UserBehaviorService:
             logger.error(f"记录用户行为失败：{e}")
             return False
     
-    def get_user_behaviors(self, user_id: str, action_type: str = None, 
+    def record_appointment_behavior(
+        self,
+        *,
+        owner_id: str,
+        session_id: str,
+        stylist_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        appointment_data: Dict[str, Any],
+    ) -> bool:
+        """Record a confirmed appointment after the booking transaction commits."""
+        action_data = {
+            "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration": int((end_time - start_time).total_seconds() / 60),
+            "project": appointment_data.get("project", "剪发"),
+            "service_key": appointment_data.get("service_key"),
+            "price": appointment_data.get("price"),
+            "preference": appointment_data.get("preference", ""),
+            "style_preference": appointment_data.get("style_preference", ""),
+            "budget": appointment_data.get("budget", ""),
+            "stylist_id": stylist_id,
+        }
+        return self.record_behavior(
+            owner_id=owner_id,
+            action_type="appointment",
+            action_data=action_data,
+            stylist_id=str(stylist_id),
+            session_id=session_id,
+        )
+
+    def get_user_behaviors(self, owner_id: str, action_type: str = None,
                           days_back: int = None) -> List[Dict[str, Any]]:
         """获取用户行为记录"""
         try:
-            return self.user_behavior_repo.get_user_behaviors(user_id, action_type, days_back)
+            return self.user_behavior_repo.get_user_behaviors(owner_id, action_type, days_back)
         except Exception as e:
             logger.error(f"获取用户行为记录失败：{e}")
             return []
     
-    def get_user_preferences(self, user_id: str) -> List[Dict[str, Any]]:
+    def get_user_preferences(self, owner_id: str) -> List[Dict[str, Any]]:
         """获取用户偏好"""
         try:
-            return self.user_behavior_repo.get_user_preferences(user_id)
+            return self.user_behavior_repo.get_user_preferences(owner_id)
         except Exception as e:
             logger.error(f"获取用户偏好失败：{e}")
             return []
     
-    def update_user_preference(self, user_id: str, preference_type: str, 
+    def update_user_preference(self, owner_id: str, preference_type: str,
                              preference_value: str, confidence_score: int = 1) -> bool:
         """更新用户偏好"""
         try:
             return self.user_behavior_repo.update_user_preference(
-                user_id, preference_type, preference_value
+                owner_id, preference_type, preference_value
             )
         except Exception as e:
             logger.error(f"更新用户偏好失败：{e}")
             return False
     
-    def analyze_user_patterns(self, user_id: str) -> Dict[str, Any]:
+    def analyze_user_patterns(self, owner_id: str) -> Dict[str, Any]:
         """分析用户行为模式"""
         try:
-            behaviors = self.get_user_behaviors(user_id, days_back=30)
+            behaviors = self.get_user_behaviors(owner_id, days_back=30)
             
             if not behaviors:
                 return {"pattern": "no_data", "recommendation": "需要更多数据"}

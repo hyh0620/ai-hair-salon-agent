@@ -74,7 +74,11 @@ class AgentRouter:
             self.state_manager.reset_to_classify()
             raise
     
-    async def route_to_consultation(self, task: str) -> AsyncGenerator[str, None]:
+    async def route_to_consultation(
+        self,
+        task: str,
+        owner_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         """
         路由到咨询Agent处理
         
@@ -97,7 +101,7 @@ class AgentRouter:
         # 调用咨询Agent
         try:
             async with self.consultant_agent as agent:
-                async for token in agent.consult_stream(task):
+                async for token in agent.consult_stream(task, owner_id=owner_id):
                     yield token
         except Exception:
             self.state_manager.reset_to_classify()
@@ -140,7 +144,7 @@ class AgentRouter:
                 yield token
         elif self.state_manager.is_in_consultation_flow():
             async with self.consultant_agent as agent:
-                async for token in agent.consult_stream(task):
+                async for token in agent.consult_stream(task, owner_id=owner_id):
                     yield token
         else:
             # 状态异常，重置并提示

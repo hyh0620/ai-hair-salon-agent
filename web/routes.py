@@ -154,9 +154,12 @@ async def reset_chat_session(
 @router.get("/user_behavior", response_class=HTMLResponse, summary="用户行为分析页面")
 async def user_behavior_page(request: Request):
     """用户行为分析页面"""
+    from config.auth_config import AuthConfig
+
     return templates.TemplateResponse(
         request=request,
         name="user_behavior_analysis.html",
+        context={"csrf_cookie_name": AuthConfig.from_env().csrf_cookie_name},
     )
 
 @router.get("/knowledge", response_class=HTMLResponse, summary="知识服务状态页面")
@@ -260,9 +263,12 @@ async def stylist_schedule_page(
 @router.get("/user_behavior_analysis", response_class=HTMLResponse, summary="用户行为分析页面")
 async def user_behavior_analysis_page(request: Request):
     """用户行为分析页面"""
+    from config.auth_config import AuthConfig
+
     return templates.TemplateResponse(
         request=request,
         name="user_behavior_analysis.html",
+        context={"csrf_cookie_name": AuthConfig.from_env().csrf_cookie_name},
     )
 
 @router.get("/admin", response_class=HTMLResponse, summary="系统管理页面")

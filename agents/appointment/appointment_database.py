@@ -95,29 +95,16 @@ class AppointmentDatabase:
         """记录用户预约行为"""
         try:
             details = self.appointment_service.build_appointment_details(appointment_history)
-            action_data = {
-                'start_time': time_config.format_datetime(start_time, "%Y-%m-%d %H:%M:%S"),
-                'end_time': time_config.format_datetime(end_time, "%Y-%m-%d %H:%M:%S"),
-                'duration': int((end_time - start_time).total_seconds() / 60),
-                'project': details.get('project', '剪发'),
-                'service_key': details.get('service_key'),
-                'price': details.get('price'),
-                'preference': appointment_history.get('preference', ''),
-                'style_preference': appointment_history.get('style_preference', ''),
-                'budget': appointment_history.get('budget', ''),
-                'stylist_id': stylist_id
-            }
-
             tracking_user_id = str(
                 owner_id or appointment_history.get("user_id") or session_id
             )
-            # 通过Services层记录用户行为
-            self.user_behavior_service.record_behavior(
-                user_id=tracking_user_id,
-                action_type='appointment',
-                action_data=action_data,
+            self.user_behavior_service.record_appointment_behavior(
+                owner_id=tracking_user_id,
+                session_id=session_id,
                 stylist_id=str(stylist_id),
-                session_id=session_id
+                start_time=start_time,
+                end_time=end_time,
+                appointment_data={**appointment_history, **details},
             )
             
         except Exception as behavior_error:

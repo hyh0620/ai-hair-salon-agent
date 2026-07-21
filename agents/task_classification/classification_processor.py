@@ -65,7 +65,10 @@ class ClassificationProcessor:
                     ):
                         yield token
                 elif category == "query" and self.agent_router.consultant_agent:
-                    async for token in self.agent_router.route_to_consultation(task):
+                    async for token in self.agent_router.route_to_consultation(
+                        task,
+                        owner_id=owner_id,
+                    ):
                         yield token
                 else:
                     # 不支持的任务类型

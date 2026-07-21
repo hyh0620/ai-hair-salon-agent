@@ -30,7 +30,12 @@ class ConsultationProcessor:
         
         return response
     
-    async def process_consultation_stream(self, user_input: str, session_id: str) -> AsyncGenerator[str, None]:
+    async def process_consultation_stream(
+        self,
+        user_input: str,
+        session_id: str,
+        owner_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         """处理流式咨询"""
         try:
             # 1. 检索知识
@@ -41,7 +46,12 @@ class ConsultationProcessor:
                 yield token
             
             # 3. 记录用户行为
-            await self._record_consultation_behavior(user_input, knowledge_docs, session_id)
+            await self._record_consultation_behavior(
+                user_input,
+                knowledge_docs,
+                session_id,
+                owner_id,
+            )
             
         except Exception:
             raise
@@ -60,8 +70,16 @@ class ConsultationProcessor:
             async for token in unrelated_callback(user_input):
                 yield token
     
-    async def _record_consultation_behavior(self, user_input: str, knowledge_docs: list, session_id: str):
+    async def _record_consultation_behavior(
+        self,
+        user_input: str,
+        knowledge_docs: list,
+        session_id: str,
+        owner_id: str | None,
+    ):
         """记录咨询行为"""
+        if not owner_id:
+            return
         try:
             from agents.user_behavior_agent import UserBehaviorAgent
             behavior_agent = UserBehaviorAgent()
@@ -73,6 +91,7 @@ class ConsultationProcessor:
             }
             
             behavior_agent.record_behavior(
+                owner_id=owner_id,
                 action_type='consultation',
                 action_data=action_data,
                 session_id=session_id

@@ -91,7 +91,10 @@ class TaskClassificationAgent:
             else:
                 stream = self.agent_router.route_to_appointment(task, owner_id=owner_id)
         elif route == "consultation":
-            stream = self.agent_router.route_to_consultation(task)
+            stream = self.agent_router.route_to_consultation(
+                task,
+                owner_id=owner_id,
+            )
         else:
             stream = self.classification_processor.process_task_stream(
                 task,

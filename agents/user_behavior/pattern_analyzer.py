@@ -24,12 +24,12 @@ class PatternAnalyzer:
     def behavior_db(self):
         return self.behavior_service.user_behavior_repo if self.behavior_service else None
     
-    def analyze_user_preferences(self, user_id: str = "default_user") -> Optional[Dict[str, Any]]:
+    def analyze_user_preferences(self, owner_id: str) -> Optional[Dict[str, Any]]:
         """分析用户偏好：最喜欢的发型师、常用服务、常用时长"""
         try:
             # 获取用户所有预约历史
             appointments = self.behavior_service.get_user_behaviors(
-                user_id=user_id,
+                owner_id=owner_id,
                 action_type='appointment'
             )
             
@@ -76,10 +76,10 @@ class PatternAnalyzer:
             self.logger.error(f"分析用户偏好失败: {str(e)}")
             return None
     
-    def should_send_return_reminder(self, user_id: str = "default_user", days_threshold: int = 30) -> bool:
+    def should_send_return_reminder(self, owner_id: str, days_threshold: int = 30) -> bool:
         """判断是否应该发送回访提醒"""
         try:
-            preferences = self.analyze_user_preferences(user_id)
+            preferences = self.analyze_user_preferences(owner_id)
             if not preferences or preferences['total_appointments'] < 2:
                 return False
             
@@ -101,10 +101,10 @@ class PatternAnalyzer:
             self.logger.error(f"判断回访提醒失败: {str(e)}")
             return False
     
-    def generate_return_message(self, user_id: str = "default_user") -> Optional[str]:
+    def generate_return_message(self, owner_id: str) -> Optional[str]:
         """生成个性化回访消息"""
         try:
-            preferences = self.analyze_user_preferences(user_id)
+            preferences = self.analyze_user_preferences(owner_id)
             if not preferences:
                 return "您好！好久没见了，要不要预约一次剪发或造型？"
             
