@@ -21,6 +21,7 @@ from agents.appointment.lifecycle_parser import (
 from agents.appointment.lifecycle_processor import AppointmentLifecycleProcessor
 from agents.appointment_agent import AppointmentAgent
 from api import chat_handler
+from config.appointment_status import appointment_status_label
 from config.constants import StateEnum
 from config.time_config import time_config
 from services.appointment_service import AppointmentService
@@ -59,6 +60,20 @@ def _create(service, stylist, owner, *, days=60, hour=14):
     )
     assert result.success
     return result
+
+
+@pytest.mark.parametrize(
+    ("status", "label"),
+    [
+        ("confirmed", "已确认"),
+        ("cancelled", "已取消"),
+        ("completed", "已完成"),
+        ("future_status", "未知状态"),
+        (None, "未知状态"),
+    ],
+)
+def test_appointment_status_labels_are_deterministic_and_safe(status, label):
+    assert appointment_status_label(status) == label
 
 
 @pytest.mark.parametrize(
@@ -145,9 +160,15 @@ def test_multi_appointment_query_selection_is_stable_and_owner_scoped(tmp_path):
     assert listed.complete is False
     assert f"预约{first.appointment_id}" in listed.message
     assert f"预约{second.appointment_id}" in listed.message
+    assert "状态 已确认" in listed.message
+    assert "confirmed" not in listed.message
+    assert "版本：" not in listed.message
     assert "session-b" not in listed.message
     assert selected.complete is True
     assert f"预约编号：{second.appointment_id}" in selected.message
+    assert "状态：已确认" in selected.message
+    assert "confirmed" not in selected.message
+    assert "版本：" not in selected.message
     assert history == {}
 
 
@@ -172,9 +193,21 @@ def test_cancel_chat_requires_confirmation_and_releases_schedule(tmp_path):
 
     assert prompt.complete is False
     assert "确认取消预约" in prompt.message
+    assert "状态：已确认" in prompt.message
+    assert "confirmed" not in prompt.message
+    assert "版本：" not in prompt.message
     assert before == ("confirmed", 1)
     assert confirmed.complete is True
     assert "预约已取消" in confirmed.message
+    assert "状态：已取消" in confirmed.message
+    assert "cancelled" not in confirmed.message
+    assert "版本：" not in confirmed.message
+    service_result = service.get_user_appointment(
+        created.appointment_id,
+        "session-a",
+    )
+    assert service_result.appointment["status"] == "cancelled"
+    assert service_result.appointment["version"] == 2
     with sqlite3.connect(db_file) as connection:
         appointment = connection.execute(
             "SELECT status, version FROM appointments WHERE id=?",
@@ -238,11 +271,20 @@ def test_update_chat_collects_change_previews_and_confirms(tmp_path):
 
     assert selected.complete is False
     assert "需要修改" in selected.message
+    assert "状态：已确认" in selected.message
+    assert "confirmed" not in selected.message
+    assert "版本：" not in selected.message
     assert preview.complete is False
     assert "原预约" in preview.message and "新预约" in preview.message
+    assert "状态 已确认" in preview.message
+    assert "confirmed" not in preview.message
+    assert "版本：" not in preview.message
     assert before[1] == 1
     assert confirmed.complete is True
     assert "预约修改成功" in confirmed.message
+    assert "状态：已确认" in confirmed.message
+    assert "confirmed" not in confirmed.message
+    assert "版本：" not in confirmed.message
     with sqlite3.connect(db_file) as connection:
         after = connection.execute(
             "SELECT start_time, version FROM appointments WHERE id=?",
