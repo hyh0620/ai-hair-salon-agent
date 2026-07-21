@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 
-from dotenv import load_dotenv
+from config.external_calls import load_runtime_dotenv
 
 
-load_dotenv()
+load_runtime_dotenv()
 
 MIN_JWT_SECRET_BYTES = 32
 SUPPORTED_JWT_ALGORITHM = "HS256"

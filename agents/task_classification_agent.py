@@ -1,4 +1,4 @@
-from dotenv import load_dotenv
+from config.external_calls import load_runtime_dotenv
 from config.model_provider import create_chat_model
 from config.constants import SharedState, StateEnum
 from .task_classification import (
@@ -9,7 +9,7 @@ from .task_classification import (
     ClassificationProcessor
 )
 
-load_dotenv()
+load_runtime_dotenv()
 
 
 class TaskClassificationAgent:

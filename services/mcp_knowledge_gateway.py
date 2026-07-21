@@ -12,10 +12,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from config.external_calls import assert_external_call_allowed, load_runtime_dotenv
 from config.trace_context import get_trace_id
 
 logger = logging.getLogger(__name__)
@@ -81,13 +81,14 @@ class MCPKnowledgeGateway:
         self.top_k = top_k
         self._exit_stack: Optional[AsyncExitStack] = None
         self._session: Optional[ClientSession] = None
+        self._session_is_external = False
         self._tools: List[str] = []
         self._lock = asyncio.Lock()
         self._last_error: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "MCPKnowledgeGateway":
-        load_dotenv()
+        load_runtime_dotenv()
         return cls(
             enabled=_env_bool("RAG_MCP_ENABLED", False),
             server_python=os.getenv("RAG_MCP_SERVER_PYTHON", ""),
@@ -112,6 +113,12 @@ class MCPKnowledgeGateway:
             return
         if self._session is not None:
             return
+
+        assert_external_call_allowed(
+            "mcp:knowledge-service",
+            "services.mcp_knowledge_gateway.MCPKnowledgeGateway.start",
+        )
+
         if not self.server_python or not self.server_cwd:
             raise MCPRAGUnavailable(
                 "RAG_MCP_SERVER_PYTHON and RAG_MCP_SERVER_CWD must be configured when RAG_MCP_ENABLED=true"
@@ -146,10 +153,12 @@ class MCPKnowledgeGateway:
 
             self._exit_stack = stack
             self._session = session
+            self._session_is_external = True
             self._last_error = None
         except Exception as exc:
             await stack.aclose()
             self._session = None
+            self._session_is_external = False
             self._last_error = str(exc)
             raise
 
@@ -158,6 +167,7 @@ class MCPKnowledgeGateway:
             await self._exit_stack.aclose()
         self._exit_stack = None
         self._session = None
+        self._session_is_external = False
         logger.info("MCP RAG gateway stopped")
 
     async def reconnect(self) -> None:
@@ -185,6 +195,12 @@ class MCPKnowledgeGateway:
     ) -> KnowledgeQueryResult:
         if not self.enabled or self._session is None:
             raise MCPRAGUnavailable("知识检索服务当前不可用，请稍后重试。")
+
+        if self._session_is_external:
+            assert_external_call_allowed(
+                "mcp:knowledge-service",
+                "services.mcp_knowledge_gateway.MCPKnowledgeGateway.query_knowledge",
+            )
 
         effective_collection = collection or self.collection
         effective_top_k = top_k or self.top_k

@@ -14,6 +14,29 @@ jobs:
     name: Python 3.12
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      EXTERNAL_CALL_POLICY: deny
+      MODEL_PROVIDER: qwen
+      LLM_API_KEY: ""
+      LLM_BASE_URL: ""
+      LLM_MODEL: ""
+      LLM_HTTP_LOCAL_ADDRESS: ""
+      EMBEDDING_PROVIDER: qwen
+      EMBEDDING_API_KEY: ""
+      EMBEDDING_BASE_URL: ""
+      EMBEDDING_MODEL: ""
+      AZURE_OPENAI_API_KEY: ""
+      AZURE_OPENAI_ENDPOINT: ""
+      AZURE_OPENAI_DEPLOYMENT: ""
+      AZURE_OPENAI_VERSION: ""
+      AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ""
+      AZURE_OPENAI_ENDPOINT_EMBEDDING: ""
+      AZURE_OPENAI_EMBEDDING_VERSION: ""
+      RAG_MCP_ENABLED: "false"
+      RAG_MCP_SERVER_PYTHON: ""
+      RAG_MCP_SERVER_CWD: ""
+      WEATHER_ENABLED: "false"
+      OPENWEATHER_API_KEY: ""
 
     steps:
       - name: Check out repository
@@ -40,7 +63,7 @@ jobs:
         run: python -m pip check
 
       - name: Run full test suite
-        run: python -m pytest -W error::DeprecationWarning
+        run: bash scripts/test_hermetic.sh
 
       - name: Compile Python modules
-        run: python -m compileall agents api services db config eval
+        run: python -m compileall agents api services db config eval web tests

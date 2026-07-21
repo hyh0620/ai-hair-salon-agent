@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agents.task_classification.task_classifier import TaskClassifier
+from config.external_calls import assert_external_call_allowed, load_runtime_dotenv
 from config.model_provider import create_chat_model
 from eval.report_generator import count_by_category, write_reports
 from services.service_catalog import normalize_service
@@ -103,7 +103,11 @@ async def call_mcp_tool(arguments: Dict[str, Any]) -> Dict[str, Any]:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    load_dotenv()
+    assert_external_call_allowed(
+        "mcp:knowledge-service",
+        "eval.run_evaluation.call_mcp_tool",
+    )
+    load_runtime_dotenv()
     server_python = os.getenv("RAG_MCP_SERVER_PYTHON", "")
     server_cwd = os.getenv("RAG_MCP_SERVER_CWD", "")
     if not server_python or not server_cwd:
@@ -690,7 +694,7 @@ def build_run_context(args: argparse.Namespace) -> Dict[str, str]:
 
 
 def _model_identifier() -> str:
-    load_dotenv()
+    load_runtime_dotenv()
     provider = os.getenv("MODEL_PROVIDER", "openai-compatible")
     model = os.getenv("LLM_MODEL")
     if not model or model.startswith("your_"):
@@ -699,7 +703,7 @@ def _model_identifier() -> str:
 
 
 def _embedding_model_identifier() -> str:
-    load_dotenv()
+    load_runtime_dotenv()
     value = os.getenv("EMBEDDING_MODEL") or os.getenv("DASHSCOPE_EMBEDDING_MODEL")
     return value or "unknown"
 
@@ -718,7 +722,7 @@ def _git_sha(cwd: Path) -> str:
 
 async def main_async() -> int:
     args = parse_args()
-    load_dotenv()
+    load_runtime_dotenv()
     cases = load_cases(Path(args.dataset))
     context = build_run_context(args)
     client = HttpClient(args.base_url, args.timeout)

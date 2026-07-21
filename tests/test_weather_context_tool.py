@@ -5,7 +5,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from agents.appointment.appointment_database import AppointmentDatabase
-from agents.appointment.appointment_processor import AppointmentProcessor, WeatherTool
+from agents.appointment.appointment_processor import (
+    AppointmentProcessor,
+    WeatherProviderResponse,
+    WeatherTool,
+)
 from agents.appointment.input_parser import InputParser
 from agents.appointment.message_builder import MessageBuilder
 from agents.appointment.stylist_finder import StylistFinder
@@ -87,54 +91,27 @@ def hourly_payload():
 
 
 def install_fake_http(monkeypatch, *, payload=None, status=200, json_error=None, request_error=None):
-    import aiohttp
-
-    class FakeResponse:
-        def __init__(self):
-            self.status = status
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def json(self):
-            if json_error:
-                raise json_error
-            return payload
-
-    class FakeSession:
+    class FakeProvider:
         calls = []
-        timeout = None
 
-        def __init__(self, *args, **kwargs):
-            FakeSession.timeout = kwargs.get("timeout")
+    async def fake_fetch(self, params):
+        FakeProvider.calls.append((self._base_url, params))
+        if request_error:
+            raise request_error
+        if json_error:
+            return WeatherProviderResponse(status_code=status, reason="malformed_response")
+        return WeatherProviderResponse(status_code=status, payload=payload)
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        def get(self, url, params):
-            FakeSession.calls.append((url, params))
-            if request_error:
-                raise request_error
-            return FakeResponse()
-
-    monkeypatch.setattr(aiohttp, "ClientSession", FakeSession)
-    return FakeSession
+    monkeypatch.setattr(WeatherTool, "_fetch_hourly_forecast", fake_fetch)
+    return FakeProvider
 
 
 def forbid_http(monkeypatch):
-    import aiohttp
+    async def forbidden_fetch(self, params):
+        del self, params
+        raise AssertionError("weather HTTP should not be called")
 
-    class ForbiddenSession:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError("weather HTTP should not be called")
-
-    monkeypatch.setattr(aiohttp, "ClientSession", ForbiddenSession)
+    monkeypatch.setattr(WeatherTool, "_fetch_hourly_forecast", forbidden_fetch)
 
 
 def test_default_provider_is_open_meteo_shanghai(monkeypatch):
@@ -243,6 +220,29 @@ def test_weather_disabled_does_not_call_http_and_booking_succeeds(monkeypatch, t
     assert "天气提醒" not in reply
     assert history["weather_status"] == "omitted"
     assert history["weather_unavailable_reason"] == "disabled"
+
+
+def test_denied_weather_is_blocked_before_http_and_booking_stays_successful(
+    monkeypatch,
+    tmp_path,
+):
+    import aiohttp
+
+    class ForbiddenSession:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("real weather client must not be constructed")
+
+    monkeypatch.setattr(aiohttp, "ClientSession", ForbiddenSession)
+    processor, stylist, _ = build_processor(tmp_path)
+    history = appointment_history()
+
+    reply = run(processor._process_successful_appointment(stylist, history, "weather-denied"))
+
+    assert "预约成功" in reply
+    assert history["appointment_id"]
+    assert "天气提醒" not in reply
+    assert history["weather_status"] == "unavailable"
+    assert history["weather_unavailable_reason"] == "external_call_blocked"
 
 
 def test_timeout_does_not_affect_booking(monkeypatch, tmp_path):

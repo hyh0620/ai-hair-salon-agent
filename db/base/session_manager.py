@@ -2,9 +2,9 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, scoped_session
+from config.external_calls import load_runtime_dotenv
 from ..models import Base
 
 
@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def resolve_database_url(db_path: str | None = None) -> str:
     """Resolve relative SQLite URLs against the project root."""
-    load_dotenv(PROJECT_ROOT / ".env")
+    load_runtime_dotenv(PROJECT_ROOT / ".env")
     database_url = db_path or os.getenv("DATABASE_URL", "sqlite:///data/smart_appointment.db")
     if not database_url.startswith("sqlite:///") or ":memory:" in database_url:
         return database_url
