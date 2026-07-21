@@ -193,8 +193,10 @@ def test_lifecycle_openapi_has_versioned_request_and_response_schemas(monkeypatc
     update_schema = schema["components"]["schemas"]["AppointmentUpdateRequest"]
     item_schema = schema["components"]["schemas"]["AppointmentLifecycleItem"]
     operation_schema = schema["components"]["schemas"]["AppointmentOperationData"]
-    assert {"user_id", "expected_version"}.issubset(cancel_schema["required"])
-    assert {"user_id", "expected_version"}.issubset(update_schema["required"])
+    assert cancel_schema["required"] == ["expected_version"]
+    assert "user_id" in cancel_schema["properties"]
+    assert update_schema["required"] == ["expected_version"]
+    assert "user_id" in update_schema["properties"]
     assert "version" in item_schema["required"]
     assert "status" in operation_schema["required"]
     assert "exception" not in operation_schema["properties"]

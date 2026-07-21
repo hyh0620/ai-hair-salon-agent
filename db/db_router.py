@@ -1,5 +1,10 @@
 from .base import SessionManager
-from .repositories import AppointmentRepository, StylistRepository, UserBehaviorRepository
+from .repositories import (
+    AppointmentRepository,
+    StylistRepository,
+    UserBehaviorRepository,
+    UserRepository,
+)
 
 
 class DatabaseRouter:
@@ -10,6 +15,7 @@ class DatabaseRouter:
         self.appointment_repo = AppointmentRepository()
         self.stylist_repo = StylistRepository(self.session_manager)
         self.user_behavior_repo = UserBehaviorRepository(self.session_manager)
+        self.user_repo = UserRepository()
 
     @property
     def stylists(self) -> StylistRepository:
@@ -22,6 +28,10 @@ class DatabaseRouter:
     @property
     def user_behavior(self) -> UserBehaviorRepository:
         return self.user_behavior_repo
+
+    @property
+    def users(self) -> UserRepository:
+        return self.user_repo
 
     def close(self):
         self.session_manager.close()

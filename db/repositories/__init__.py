@@ -10,9 +10,11 @@ Repositories Module
 from .appointment_repository import AppointmentRepository
 from .stylist_repository import StylistRepository
 from .user_behavior_repository import UserBehaviorRepository
+from .user_repository import UserRepository
 
 __all__ = [
     'AppointmentRepository',
     'StylistRepository',
-    'UserBehaviorRepository'
+    'UserBehaviorRepository',
+    'UserRepository',
 ]

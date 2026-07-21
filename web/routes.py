@@ -5,14 +5,20 @@ Web界面路由
 """
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from api.chat_handler import (
     ProcessUserInput_stream,
     get_chat_session_registry,
     route_user_message,
+)
+from api.auth_dependencies import (
+    AuthenticatedPrincipal,
+    enforce_csrf,
+    get_request_principal,
+    resolve_request_identity,
 )
 import logging
 
@@ -28,12 +34,7 @@ class ChatRequest(BaseModel):
     message: str
     state: str | None = None
     session_id: str | None = None
-    owner_id: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9_-]+$",
-    )
+    owner_id: str | None = None
     route: str | None = None
 
 
@@ -44,19 +45,17 @@ class ChatResetRequest(BaseModel):
 class ChatRouteRequest(BaseModel):
     message: str
     session_id: str | None = None
-    owner_id: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9_-]+$",
-    )
+    owner_id: str | None = None
 
 @router.get("/", response_class=HTMLResponse, summary="主页")
 async def read_root(request: Request):
     """渲染主页聊天界面"""
+    from config.auth_config import AuthConfig
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
+        context={"csrf_cookie_name": AuthConfig.from_env().csrf_cookie_name},
     )
 
 
@@ -76,26 +75,50 @@ async def system_status_page(request: Request):
     )
 
 @router.post("/chat/stream", summary="流式聊天")
-async def chat_stream_endpoint(chat: ChatRequest):
+async def chat_stream_endpoint(
+    chat: ChatRequest,
+    request: Request,
+    principal: AuthenticatedPrincipal | None = Depends(get_request_principal),
+):
     """处理流式聊天请求"""
+    identity = resolve_request_identity(
+        principal,
+        chat.owner_id,
+        legacy_fallback=chat.session_id,
+    )
+    enforce_csrf(request, principal)
+
     async def token_generator():
         async for token in ProcessUserInput_stream(
             chat.message,
             session_id=chat.session_id,
-            owner_id=chat.owner_id,
+            owner_id=identity.owner_id,
+            owner_authenticated=identity.authenticated,
             route=chat.route,
         ):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
 
 @router.post("/chat", summary="聊天接口")
-async def chat_endpoint(chat: ChatRequest):
+async def chat_endpoint(
+    chat: ChatRequest,
+    request: Request,
+    principal: AuthenticatedPrincipal | None = Depends(get_request_principal),
+):
     """非流式路径入口，页面默认使用/chat/stream"""
+    identity = resolve_request_identity(
+        principal,
+        chat.owner_id,
+        legacy_fallback=chat.session_id,
+    )
+    enforce_csrf(request, principal)
+
     async def token_generator():
         async for token in ProcessUserInput_stream(
             chat.message,
             session_id=chat.session_id,
-            owner_id=chat.owner_id,
+            owner_id=identity.owner_id,
+            owner_authenticated=identity.authenticated,
             route=chat.route,
         ):
             yield token
@@ -103,15 +126,28 @@ async def chat_endpoint(chat: ChatRequest):
 
 
 @router.post("/api/chat/route", include_in_schema=False)
-async def route_chat_message(payload: ChatRouteRequest):
+async def route_chat_message(
+    payload: ChatRouteRequest,
+    principal: AuthenticatedPrincipal | None = Depends(get_request_principal),
+):
     """Select the page endpoint without executing a task or mutating session state."""
+    resolve_request_identity(
+        principal,
+        payload.owner_id,
+        legacy_fallback=payload.session_id,
+    )
     registry = get_chat_session_registry()
     session = registry.get_existing(payload.session_id) if payload.session_id else None
     return {"route": route_user_message(payload.message, session)}
 
 
 @router.post("/api/chat/reset", include_in_schema=False)
-async def reset_chat_session(payload: ChatResetRequest):
+async def reset_chat_session(
+    payload: ChatResetRequest,
+    request: Request,
+    principal: AuthenticatedPrincipal | None = Depends(get_request_principal),
+):
+    enforce_csrf(request, principal)
     new_session_id = get_chat_session_registry().reset(payload.session_id)
     return {"status": "reset", "session_id": new_session_id}
 

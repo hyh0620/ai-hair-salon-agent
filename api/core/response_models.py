@@ -156,14 +156,14 @@ class AppointmentOperationResponse(BaseResponse):
 class AppointmentCancelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str = Field(min_length=1)
+    user_id: Optional[str] = Field(default=None, min_length=1)
     expected_version: int = Field(ge=1)
 
 
 class AppointmentUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str = Field(min_length=1)
+    user_id: Optional[str] = Field(default=None, min_length=1)
     expected_version: int = Field(ge=1)
     target_date: Optional[date] = None
     start_time: Optional[time] = None

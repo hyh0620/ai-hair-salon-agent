@@ -59,6 +59,7 @@ class SessionManager:
             event.listen(self.engine, "connect", self._configure_sqlite_connection)
         Base.metadata.create_all(self.engine)
         self._upgrade_sqlite_appointments()
+        self._upgrade_sqlite_users()
         self._install_sqlite_schedule_guards()
         self.Session = scoped_session(sessionmaker(bind=self.engine))
 
@@ -178,6 +179,21 @@ class SessionManager:
             connection.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_stylist_schedules_appointment "
                 "ON stylist_schedules(appointment_id)"
+            )
+
+    def _upgrade_sqlite_users(self):
+        """Ensure the account lookup index exists without rebuilding old data."""
+        if self.engine.dialect.name != "sqlite":
+            return
+
+        with self.engine.begin() as connection:
+            table_exists = connection.exec_driver_sql(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+            ).scalar()
+            if not table_exists:
+                return
+            connection.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users(email)"
             )
 
     def close(self):

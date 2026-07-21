@@ -251,6 +251,7 @@ def test_atomic_entry_and_api_reject_past_appointments(monkeypatch, tmp_path):
         response = client.post(
             "/api/appointment/create",
             json={
+                "user_id": "past-api-owner",
                 "project": "男士短发",
                 "start_time": "2020-07-18 14:00",
                 "duration": "45分钟",
@@ -263,7 +264,7 @@ def test_atomic_entry_and_api_reject_past_appointments(monkeypatch, tmp_path):
     assert _database_counts(api_db_file) == (0, 0, 0)
 
 
-def test_api_without_user_id_uses_request_scoped_tracking_identifier(monkeypatch, tmp_path):
+def test_guest_api_without_user_id_is_rejected_without_writing(monkeypatch, tmp_path):
     db_file = tmp_path / "api_tracking.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
     monkeypatch.setenv("RAG_MCP_ENABLED", "false")
@@ -279,14 +280,9 @@ def test_api_without_user_id_uses_request_scoped_tracking_identifier(monkeypatch
             },
         )
 
-    assert response.status_code == 200
-    tracking_user_id = response.json()["data"]["user_id"]
-    assert tracking_user_id.startswith("api-session-")
-    with sqlite3.connect(db_file) as connection:
-        persisted = connection.execute(
-            "select user_id, session_id from appointments"
-        ).fetchone()
-    assert persisted == (tracking_user_id, tracking_user_id)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "游客预约标识不能为空"
+    assert _database_counts(db_file) == (0, 0, 0)
 
 
 def test_api_rejects_selected_stylist_without_service_capability(monkeypatch, tmp_path):
