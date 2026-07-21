@@ -3,6 +3,7 @@ import sqlite3
 from datetime import timedelta
 from pathlib import Path
 
+import jwt
 from fastapi.testclient import TestClient
 
 from app import create_app
@@ -204,8 +205,13 @@ def test_invalid_and_expired_jwt_never_fall_back_to_guest(monkeypatch, tmp_path)
         user_id = registered.json()["data"]["user"]["id"]
         service = AuthService()
         try:
+            auth_session_id = jwt.decode(
+                registered.json()["data"]["access_token"],
+                options={"verify_signature": False},
+            )["sid"]
             expired, _ = service.create_access_token(
                 user_id,
+                auth_session_id,
                 now=time_config.now() - timedelta(hours=10),
                 expires_delta=timedelta(minutes=1),
             )

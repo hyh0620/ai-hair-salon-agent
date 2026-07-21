@@ -175,15 +175,27 @@ ConsultantAgent
 
 MCP 负责标准化调用独立服务；RAG 是知识服务内部的检索与融合。RAG 不提供真实排班，也不决定预约结果。
 
-### 7. 故障与项目边界
+### 7. 可吊销认证会话
+
+使用 `bash scripts/run_isolated_validation.sh` 启动临时 SQLite 和禁用外部 Provider 的验收环境。认证演示可覆盖：
+
+1. 注册或登录后，浏览器获得短期 Access Cookie、HttpOnly Refresh Cookie 和 CSRF Cookie；响应 JSON 不包含 Refresh Token；
+2. 令 Access Token 在受控测试环境中过期后访问 `/api/auth/me`，页面只执行一次 Refresh 并重试原请求，`chat_session_id` 和预约 owner 不变化；
+3. 正常 Refresh 后旧 Token 只能在 3 秒 Grace Window 内得到 409，窗口外重放会撤销当前 Auth Session；
+4. Logout 后，该 Session 已复制的 Bearer Token 立即返回 401；Access 已过期时仍可使用 Refresh Cookie 完成退出；
+5. 同一账户建立两个独立 Session，退出其中一个不会影响另一个。
+
+演示中不要打印 Access Token、Refresh Token、Cookie、Hash、邮箱、JWT Secret 或任何 Provider Key。Refresh 当前只支持同源 Cookie Jar，不提供 JSON Body Token。
+
+### 8. 故障与项目边界
 
 可以展示 `eval/mcp_runtime_failure_e2e.py` 已覆盖的故障契约：MCP 不可用时 Consultation 返回 503，而 Booking 仍可运行。
 
 最后说明当前 owner 范围校验和 Session 的真实边界：
 
-* `owner_id` 来自客户端 `user_id` 或聊天 Session ID，不是可信认证身份；
-* Session 是进程内对话状态，不是持久化 Memory 或 Redis Session；
-* 生产环境需要认证系统、共享 Session 和服务型数据库。
+* 登录账户 owner 由验证后的 JWT `sub` 生成，游客 owner 仍是可伪造的浏览器业务范围；
+* Auth Session 持久化凭据状态，Chat Session 仍是进程内对话状态，二者不是同一标识；
+* 当前实现没有 MFA、设备管理 UI、分布式 Session 或生产级身份基础设施。
 
 ## 建议演示问题
 
@@ -204,6 +216,7 @@ MCP 负责标准化调用独立服务；RAG 是知识服务内部的检索与融
 * 价格、标准时长、真实排班和预约结果由确定性服务控制；
 * 未指定发型师时先返回候选，用户选择并确认后才写入；
 * 创建、取消和修改共享原子事务与乐观并发校验；
+* Access JWT 绑定可吊销 Auth Session，Refresh Token 单次使用且数据库只保存 Hash；
 * MCP Knowledge Service 提供带 Citations 的 RAG 知识咨询；
 * 天气是成功预约后的非阻塞上下文增强；
 * 已保存评估快照中 Functional Contract 为 28 / 28，RAG 指标单独报告。
@@ -211,7 +224,7 @@ MCP 负责标准化调用独立服务；RAG 是知识服务内部的检索与融
 ## 不应夸大的能力
 
 * 不声称已经生产部署或拥有真实商业流量；
-* 不把 owner 范围校验描述为安全认证；
+* 不把游客 owner 范围校验描述为安全认证；
 * 不把进程内 Session 描述为长期 Memory 或分布式 Session；
 * 不把 SQLite 事务描述为分布式并发方案；
 * 不把职责拆分的 Agent 组件描述为分布式自主多 Agent；

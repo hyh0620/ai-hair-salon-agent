@@ -183,8 +183,13 @@ def test_invalid_expired_and_tampered_tokens_return_401_without_guest_fallback(m
 
         service = AuthService()
         try:
+            auth_session_id = jwt.decode(
+                valid_token,
+                options={"verify_signature": False},
+            )["sid"]
             expired_token, _ = service.create_access_token(
                 user_id,
+                auth_session_id,
                 now=time_config.now().astimezone(time_config.BEIJING_TZ) - timedelta(hours=10),
                 expires_delta=timedelta(minutes=1),
             )

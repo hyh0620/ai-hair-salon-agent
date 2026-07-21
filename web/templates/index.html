@@ -651,6 +651,7 @@
             </form>
         </div>
     </div>
+    <script src="/static/auth_refresh.js"></script>
     <script>
     const chatBox = document.getElementById('chat-box');
     const chatForm = document.getElementById('chat-form');
@@ -677,6 +678,7 @@
     const sessionStorageKey = 'salon_chat_session_id';
     const ownerStorageKey = 'salon_anonymous_owner_id';
     const csrfCookieName = {{ csrf_cookie_name | tojson }};
+    window.SalonAuthRefresh.configure({csrfCookieName});
     let lastBotBubble = null;
     let authMode = 'login';
     let authAvailable = true;
@@ -769,7 +771,10 @@
     }
 
     async function refreshAccountState() {
-        const response = await fetch('/api/auth/me', {credentials: 'same-origin'});
+        const response = await window.SalonAuthRefresh.fetch(
+            '/api/auth/me',
+            {credentials: 'same-origin'}
+        );
         if (response.ok) {
             const payload = await response.json();
             setAccountState(payload.data.user);
@@ -946,7 +951,7 @@
     }
 
     async function selectMessageRoute(text) {
-        const res = await fetch('/api/chat/route', {
+        const res = await window.SalonAuthRefresh.fetch('/api/chat/route', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({message: text, session_id: sessionId, owner_id: ownerId})
@@ -979,7 +984,7 @@
     }
 
     async function callConsultationApi(text) {
-        const res = await fetch('/api/consultation/query', {
+        const res = await window.SalonAuthRefresh.fetch('/api/consultation/query', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({question: text})
@@ -995,7 +1000,7 @@
     }
 
     async function callStreamingAgent(text, route) {
-        const res = await fetch('/chat/stream', {
+        const res = await window.SalonAuthRefresh.fetch('/chat/stream', {
             method: 'POST',
             headers: requestHeaders({csrf: true}),
             body: JSON.stringify({message: text, session_id: sessionId, owner_id: ownerId, route})
@@ -1062,7 +1067,7 @@
     clearBtn.onclick = async function() {
         clearBtn.disabled = true;
         try {
-            const res = await fetch('/api/chat/reset', {
+            const res = await window.SalonAuthRefresh.fetch('/api/chat/reset', {
                 method: 'POST',
                 headers: requestHeaders({csrf: true}),
                 body: JSON.stringify({session_id: sessionId})
@@ -1158,6 +1163,13 @@
             logoutBtn.disabled = false;
         }
     }
+
+    window.addEventListener('salon-auth-expired', (event) => {
+        setAccountState(null);
+        const message = event.detail?.message || '登录状态已失效，请重新登录';
+        const description = accountSummary.querySelector('span');
+        if (description) description.textContent = message;
+    });
     
     // 添加回车键发送功能
     userInput.addEventListener('keypress', function(e) {

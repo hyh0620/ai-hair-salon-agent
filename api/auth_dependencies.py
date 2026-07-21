@@ -36,6 +36,7 @@ class AuthenticatedPrincipal:
     created_at: datetime
     updated_at: datetime
     auth_source: str
+    auth_session_id: str
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ def get_request_principal(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> Optional[AuthenticatedPrincipal]:
     config = AuthConfig.from_env()
-    bearer_token = _bearer_token(request, credentials)
+    bearer_token = extract_bearer_token(request, credentials)
     cookie_token = request.cookies.get(config.cookie_name)
     if not bearer_token and not cookie_token:
         return None
@@ -65,11 +66,11 @@ def get_request_principal(
 
     service = AuthService(config=config)
     try:
-        bearer_user = (
-            service.verify_access_token(bearer_token).user if bearer_token else None
-        )
-        cookie_user = (
-            service.verify_access_token(cookie_token).user if cookie_token else None
+        bearer_verified = service.verify_access_token(bearer_token) if bearer_token else None
+        cookie_verified = (
+            bearer_verified
+            if bearer_verified is not None and cookie_token == bearer_token
+            else service.verify_access_token(cookie_token) if cookie_token else None
         )
     except AuthServiceError as exc:
         if exc.code == "auth_not_configured":
@@ -85,15 +86,20 @@ def get_request_principal(
     finally:
         service.close()
 
-    if bearer_user and cookie_user and bearer_user["id"] != cookie_user["id"]:
+    if (
+        bearer_verified
+        and cookie_verified
+        and bearer_verified.user["id"] != cookie_verified.user["id"]
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Bearer Token 与登录 Cookie 身份不一致",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = bearer_user or cookie_user
-    source = "bearer" if bearer_user else "cookie"
+    verified = bearer_verified or cookie_verified
+    user = verified.user
+    source = "bearer" if bearer_verified else "cookie"
     return AuthenticatedPrincipal(
         user_id=user["id"],
         email=user["email"],
@@ -102,6 +108,7 @@ def get_request_principal(
         created_at=user["created_at"],
         updated_at=user["updated_at"],
         auth_source=source,
+        auth_session_id=verified.auth_session_id,
     )
 
 
@@ -185,6 +192,11 @@ def enforce_csrf(
 ) -> None:
     if principal is None or principal.auth_source != "cookie":
         return
+    enforce_cookie_csrf(request)
+
+
+def enforce_cookie_csrf(request: Request) -> None:
+    """Validate double-submit CSRF without requiring a valid access JWT."""
     config = AuthConfig.from_env()
     cookie_token = request.cookies.get(config.csrf_cookie_name, "")
     header_token = request.headers.get("X-CSRF-Token", "")
@@ -203,7 +215,7 @@ def generate_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _bearer_token(
+def extract_bearer_token(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials],
 ) -> Optional[str]:

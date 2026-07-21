@@ -22,6 +22,7 @@ from services.auth_service import AuthService, AuthServiceError
 LOGIN_CLIENT_SCOPE = "login_client"
 LOGIN_CLIENT_ACCOUNT_SCOPE = "login_client_account"
 REGISTER_CLIENT_SCOPE = "register_client"
+REFRESH_CLIENT_SCOPE = "refresh_client"
 UNKNOWN_CLIENT = "unknown-client"
 
 

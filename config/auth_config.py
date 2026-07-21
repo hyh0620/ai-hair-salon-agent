@@ -41,6 +41,11 @@ class AuthConfig:
     csrf_cookie_name: str
     cookie_secure: bool
     cookie_samesite: str
+    refresh_token_days: int = 30
+    refresh_cookie_name: str = "salon_refresh_token"
+    refresh_cookie_path: str = "/api/auth"
+    refresh_reuse_grace_seconds: int = 3
+    auth_session_retention_days: int = 30
 
     @classmethod
     def from_env(cls) -> "AuthConfig":
@@ -53,9 +58,9 @@ class AuthConfig:
             ).strip(),
             access_token_minutes=_env_int(
                 "AUTH_ACCESS_TOKEN_MINUTES",
-                480,
+                15,
                 1,
-                60 * 24 * 7,
+                60 * 24,
             ),
             issuer=os.getenv(
                 "AUTH_JWT_ISSUER",
@@ -75,6 +80,32 @@ class AuthConfig:
             ).strip(),
             cookie_secure=_env_bool("AUTH_COOKIE_SECURE", False),
             cookie_samesite=os.getenv("AUTH_COOKIE_SAMESITE", "lax").strip().lower(),
+            refresh_token_days=_env_int(
+                "AUTH_REFRESH_TOKEN_DAYS",
+                30,
+                1,
+                90,
+            ),
+            refresh_cookie_name=os.getenv(
+                "AUTH_REFRESH_COOKIE_NAME",
+                "salon_refresh_token",
+            ).strip(),
+            refresh_cookie_path=os.getenv(
+                "AUTH_REFRESH_COOKIE_PATH",
+                "/api/auth",
+            ).strip(),
+            refresh_reuse_grace_seconds=_env_int(
+                "AUTH_REFRESH_REUSE_GRACE_SECONDS",
+                3,
+                1,
+                60,
+            ),
+            auth_session_retention_days=_env_int(
+                "AUTH_AUTH_SESSION_RETENTION_DAYS",
+                30,
+                1,
+                365,
+            ),
         )
 
     @property
@@ -96,7 +127,21 @@ class AuthConfig:
             and self.audience
             and self.cookie_name
             and self.csrf_cookie_name
-            and self.cookie_name != self.csrf_cookie_name
+            and self.refresh_cookie_name
+            and len(
+                {
+                    self.cookie_name,
+                    self.csrf_cookie_name,
+                    self.refresh_cookie_name,
+                }
+            )
+            == 3
+            and self.refresh_cookie_path.startswith("/")
+            and ";" not in self.refresh_cookie_path
+            and 1 <= self.access_token_minutes <= 60 * 24
+            and 1 <= self.refresh_token_days <= 90
+            and 1 <= self.refresh_reuse_grace_seconds <= 60
+            and 1 <= self.auth_session_retention_days <= 365
             and self.cookie_samesite in {"lax", "strict", "none"}
             and (self.cookie_samesite != "none" or self.cookie_secure)
         )
@@ -104,6 +149,10 @@ class AuthConfig:
     @property
     def max_age_seconds(self) -> int:
         return self.access_token_minutes * 60
+
+    @property
+    def refresh_max_age_seconds(self) -> int:
+        return self.refresh_token_days * 24 * 60 * 60
 
 
 def authentication_status() -> str:
