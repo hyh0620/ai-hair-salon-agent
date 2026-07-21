@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
@@ -18,6 +19,7 @@ from api.core.auth_models import (
     AuthLogoutResponse,
     AuthMeData,
     AuthMeResponse,
+    AuthRateLimitResponse,
     AuthSessionData,
     AuthSessionResponse,
     LoginRequest,
@@ -26,10 +28,40 @@ from api.core.auth_models import (
 )
 from config.auth_config import AuthConfig
 from config.trace_context import get_trace_id
+from services.auth_rate_limit_service import (
+    LOGIN_CLIENT_ACCOUNT_SCOPE,
+    LOGIN_CLIENT_SCOPE,
+    REGISTER_CLIENT_SCOPE,
+    AuthRateLimiter,
+    account_fingerprint,
+    client_fingerprint,
+    login_pair_fingerprint,
+)
 from services.auth_service import AuthService, AuthServiceError
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["账户认证"])
+RATE_LIMIT_DETAIL = "请求过于频繁，请稍后再试"
+RATE_LIMIT_RESPONSES = {
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": AuthRateLimitResponse,
+        "description": "登录或注册请求超过当前进程内的安全频率限制。",
+        "headers": {
+            "Retry-After": {
+                "description": "再次尝试前至少等待的秒数。",
+                "schema": {"type": "integer", "minimum": 1},
+            }
+        },
+    }
+}
+
+
+def get_auth_rate_limiter(request: Request) -> AuthRateLimiter:
+    limiter = getattr(request.app.state, "auth_rate_limiter", None)
+    if not isinstance(limiter, AuthRateLimiter):
+        raise RuntimeError("authentication rate limiter is not initialized")
+    return limiter
 
 
 @router.post(
@@ -38,12 +70,16 @@ router = APIRouter(prefix="/api/auth", tags=["账户认证"])
     status_code=status.HTTP_201_CREATED,
     summary="注册本地账户",
     description="创建使用 Argon2 哈希密码的本地账户，并设置 HttpOnly JWT Cookie。",
+    responses=RATE_LIMIT_RESPONSES,
 )
 def register(
+    request: Request,
     payload: RegisterRequest,
     response: Response,
+    rate_limiter: AuthRateLimiter = Depends(get_auth_rate_limiter),
     x_chat_session_id: Optional[str] = Header(default=None),
 ):
+    _enforce_register_rate_limit(request, rate_limiter)
     service = AuthService()
     try:
         user = service.register_user(
@@ -67,12 +103,16 @@ def register(
     response_model=AuthSessionResponse,
     summary="登录本地账户",
     description="验证 Argon2 密码并签发带 issuer、audience 和到期时间的访问 Token。",
+    responses=RATE_LIMIT_RESPONSES,
 )
 def login(
+    request: Request,
     payload: LoginRequest,
     response: Response,
+    rate_limiter: AuthRateLimiter = Depends(get_auth_rate_limiter),
     x_chat_session_id: Optional[str] = Header(default=None),
 ):
+    pair_key = _enforce_login_rate_limit(request, payload.email, rate_limiter)
     service = AuthService()
     try:
         user = service.authenticate_user(
@@ -83,6 +123,8 @@ def login(
         token, _ = service.create_access_token(user["id"])
         session_id = _rotate_chat_session(x_chat_session_id)
         _set_auth_cookies(response, token, generate_csrf_token(), service.config)
+        if pair_key is not None:
+            rate_limiter.reset(LOGIN_CLIENT_ACCOUNT_SCOPE, pair_key)
         return _auth_response("登录成功", user, token, session_id, service.config)
     except AuthServiceError as exc:
         _raise_auth_error(exc, registering=False)
@@ -194,6 +236,89 @@ def _set_auth_cookies(
 
 def _rotate_chat_session(session_id: Optional[str]) -> str:
     return get_chat_session_registry().reset(session_id)
+
+
+def _enforce_register_rate_limit(
+    request: Request,
+    limiter: AuthRateLimiter,
+) -> None:
+    config = limiter.config
+    if not config.enabled:
+        return
+    decision = limiter.consume(
+        REGISTER_CLIENT_SCOPE,
+        client_fingerprint(_client_host(request)),
+        config.register_client_limit,
+        config.register_client_window_seconds,
+    )
+    if not decision.allowed:
+        _raise_rate_limited("register", REGISTER_CLIENT_SCOPE, decision.retry_after_seconds)
+
+
+def _enforce_login_rate_limit(
+    request: Request,
+    email: str,
+    limiter: AuthRateLimiter,
+) -> Optional[str]:
+    config = limiter.config
+    if not config.enabled:
+        return None
+
+    client_key = client_fingerprint(_client_host(request))
+    pair_key = login_pair_fingerprint(client_key, account_fingerprint(email))
+    decisions = (
+        (
+            LOGIN_CLIENT_SCOPE,
+            limiter.consume(
+                LOGIN_CLIENT_SCOPE,
+                client_key,
+                config.login_client_limit,
+                config.login_client_window_seconds,
+            ),
+        ),
+        (
+            LOGIN_CLIENT_ACCOUNT_SCOPE,
+            limiter.consume(
+                LOGIN_CLIENT_ACCOUNT_SCOPE,
+                pair_key,
+                config.login_client_account_limit,
+                config.login_client_account_window_seconds,
+            ),
+        ),
+    )
+    blocked = [(scope, decision) for scope, decision in decisions if not decision.allowed]
+    if blocked:
+        strict_scope, strict_decision = max(
+            blocked,
+            key=lambda item: item[1].retry_after_seconds,
+        )
+        _raise_rate_limited(
+            "login",
+            strict_scope,
+            strict_decision.retry_after_seconds,
+        )
+    return pair_key
+
+
+def _client_host(request: Request) -> Optional[str]:
+    return request.client.host if request.client is not None else None
+
+
+def _raise_rate_limited(operation: str, scope: str, retry_after_seconds: int) -> None:
+    retry_after = max(1, int(retry_after_seconds))
+    logger.warning(
+        "auth_rate_limit operation=%s status=rate_limited scope=%s "
+        "trace_id=%s retry_after_seconds=%s",
+        operation,
+        scope,
+        get_trace_id(),
+        retry_after,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=RATE_LIMIT_DETAIL,
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 def _raise_auth_error(exc: AuthServiceError, *, registering: bool) -> None:

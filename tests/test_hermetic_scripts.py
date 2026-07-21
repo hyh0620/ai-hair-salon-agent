@@ -103,5 +103,6 @@ def test_isolated_validation_script_disables_every_real_provider():
     assert "mktemp -d" in text
     assert "trap cleanup EXIT" in text
     assert "--host \"$HOST\"" in text
+    assert "--no-proxy-headers" in text
     assert "source " not in text
     assert ".env" not in text

@@ -14,6 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from services.stylist_service import StylistService
 from services.recommendation_service import RecommendationService
 from services.mcp_knowledge_gateway import get_mcp_knowledge_gateway
+from services.auth_rate_limit_service import AuthRateLimiter
+from config.auth_rate_limit_config import AuthRateLimitConfig
 from config.trace_context import new_trace_id, reset_trace_id, set_trace_id
 import logging
 
@@ -101,6 +103,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+    app.state.auth_rate_limiter = AuthRateLimiter(AuthRateLimitConfig.from_env())
 
     cors_allowed_origins = _get_cors_allowed_origins()
     if cors_allowed_origins:
@@ -160,4 +163,4 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=8001, proxy_headers=False)

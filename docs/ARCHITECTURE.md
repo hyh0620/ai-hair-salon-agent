@@ -41,6 +41,8 @@ Agent 只接收已解析 owner_id
 
 密码仅以 Argon2 hash 保存在 `users` 表。浏览器访问 Token 位于 HttpOnly Cookie，JavaScript 只读取独立的 CSRF Cookie 并通过 `X-CSRF-Token` 提交；Swagger、CLI 和测试可使用 Bearer Token，Bearer 请求不需要 Cookie CSRF。如果 Bearer 与 Cookie 同时存在但对应不同账户，请求直接返回 401。
 
+登录和注册在进入 `AuthService` 前经过有界、线程安全的进程内滑动窗口限流。登录按直连客户端以及“直连客户端 + 规范化邮箱”两个范围限制，注册按直连客户端限制；429 响应带 `Retry-After`，不会执行用户查询或 Argon2。客户端地址只读取 `request.client.host`，不信任代理转发头。该状态在进程重启后清空且不跨 Worker/实例共享，生产部署需要可信代理、API Gateway 或 Redis 等共享限流层。
+
 认证身份优先于客户端字段：登录后，REST 的 `user_id` 与 Chat 的 `owner_id` 都不能覆盖 JWT 身份。无效或过期 Token 返回 401，不会降级为游客；未登录调用者不能进入 `account:` owner 命名空间。Auth 未启用或 secret 不合法不会阻断游客 Booking、Consultation、SQLite、MCP/RAG 或天气，但 Auth API 返回 503。
 
 用户行为分析和回访提醒同样在 API 边界解析 `RequestIdentity`，然后只把可信 `owner_id` 传给 Agent、Service 和 Repository。账户行为使用 `account:<JWT sub>`，游客行为使用通过格式校验的 `X-Anonymous-Owner-ID`；客户端请求体或查询参数不能切换账户范围。无效 Token 不会回退到游客，分析响应只包含安全的 viewer 显示信息，不暴露内部 owner。

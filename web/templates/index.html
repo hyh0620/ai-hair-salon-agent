@@ -680,6 +680,7 @@
     let lastBotBubble = null;
     let authMode = 'login';
     let authAvailable = true;
+    let authSubmitting = false;
     const browserIdentity = getOrCreateBrowserIdentity();
     let sessionId = browserIdentity.sessionId;
     const ownerId = browserIdentity.ownerId;
@@ -816,6 +817,18 @@
             return payload.detail[0]?.msg || fallback;
         }
         return fallback;
+    }
+
+    function authRateLimitMessage(response) {
+        const rawRetryAfter = response.headers.get('Retry-After');
+        const normalized = rawRetryAfter ? rawRetryAfter.trim() : '';
+        if (/^\d+$/.test(normalized)) {
+            const retryAfter = Number(normalized);
+            if (Number.isSafeInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 2592000) {
+                return `请求过于频繁，请在 ${retryAfter} 秒后重试`;
+            }
+        }
+        return '请求过于频繁，请稍后再试';
     }
 
     function addMessage(text, sender) {
@@ -1081,10 +1094,12 @@
 
     authForm.onsubmit = async function(event) {
         event.preventDefault();
+        if (authSubmitting) return;
         if (authMode === 'register' && authPassword.value !== authConfirmPassword.value) {
             authError.textContent = '两次输入的密码不一致。';
             return;
         }
+        authSubmitting = true;
         authSubmit.disabled = true;
         authError.textContent = '';
         const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
@@ -1101,6 +1116,10 @@
                 body: JSON.stringify(body)
             });
             const payload = await response.json().catch(() => ({}));
+            if (response.status === 429) {
+                authError.textContent = authRateLimitMessage(response);
+                return;
+            }
             if (!response.ok) {
                 authError.textContent = errorMessage(payload, '账户操作失败，请检查输入后重试。');
                 return;
@@ -1112,6 +1131,7 @@
         } catch (error) {
             authError.textContent = '账户服务暂时不可用，请稍后重试。';
         } finally {
+            authSubmitting = false;
             authSubmit.disabled = false;
         }
     }

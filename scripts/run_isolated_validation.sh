@@ -59,6 +59,6 @@ printf '%s\n' \
   "Host: $HOST" \
   "Port: $PORT"
 
-"$PYTHON_BIN" -m uvicorn app:app --host "$HOST" --port "$PORT" &
+"$PYTHON_BIN" -m uvicorn app:app --host "$HOST" --port "$PORT" --no-proxy-headers &
 SERVER_PID=$!
 wait "$SERVER_PID"
