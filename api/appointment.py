@@ -127,6 +127,33 @@ def _raise_for_save_failure(reason: str) -> None:
     raise HTTPException(status_code=500, detail="预约暂时无法保存")
 
 
+def _record_created_appointment_behavior(
+    *,
+    owner_id: str,
+    session_id: str,
+    stylist_id: int,
+    start_time: datetime,
+    end_time: datetime,
+    details: dict,
+) -> None:
+    """Record behavior only after the atomic booking transaction succeeds."""
+    try:
+        from services.user_behavior_service import UserBehaviorService
+
+        recorded = UserBehaviorService().record_appointment_behavior(
+            owner_id=owner_id,
+            session_id=session_id,
+            stylist_id=str(stylist_id),
+            start_time=start_time,
+            end_time=end_time,
+            appointment_data=details,
+        )
+        if not recorded:
+            logger.warning("appointment_behavior_not_recorded")
+    except Exception:
+        logger.exception("appointment_behavior_record_failed")
+
+
 @router.post(
     "/create",
     response_model=AppointmentCreateResponse,
@@ -148,6 +175,7 @@ async def create_appointment(
     identity = resolve_request_identity(principal, request.user_id)
     enforce_csrf(http_request, principal)
     tracking_user_id = identity.owner_id
+    tracking_session_id = f"api-{trace_id}"
     logger.info("appointment_route trace_id=%s service=%s stylist_id=%s", trace_id, request.project or request.service, request.stylist_id)
     try:
         appointment_service, finder, availability_service = _build_services()
@@ -207,7 +235,7 @@ async def create_appointment(
             start_time=start_time,
             end_time=end_time,
             appointment_history=details,
-            session_id=tracking_user_id,
+            session_id=tracking_session_id,
             owner_id=tracking_user_id,
         )
         if not saved.success:
@@ -218,6 +246,15 @@ async def create_appointment(
                 saved.reason,
             )
             _raise_for_save_failure(saved.reason or "persistence_error")
+
+        _record_created_appointment_behavior(
+            owner_id=tracking_user_id,
+            session_id=tracking_session_id,
+            stylist_id=stylist["id"],
+            start_time=start_time,
+            end_time=end_time,
+            details=details,
+        )
 
         logger.info("appointment_response trace_id=%s status=confirmed stylist_id=%s service=%s", trace_id, stylist["id"], details["project"])
         response = AppointmentResponse(

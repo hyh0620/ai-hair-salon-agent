@@ -16,7 +16,7 @@ import logging
 class BehaviorRecorder:
     """行为记录器 - 负责用户行为的记录和存储"""
     
-    def __init__(self, behavior_service = None):
+    def __init__(self, behavior_service=None, owner_id: str | None = None):
         """
         初始化行为记录器
         
@@ -24,7 +24,13 @@ class BehaviorRecorder:
             behavior_service: 用户行为服务实例
         """
         self.behavior_service = behavior_service
+        self.owner_id = owner_id
         self.logger = logging.getLogger(__name__)
+
+    def _require_owner_id(self) -> str:
+        if not self.owner_id:
+            raise ValueError("owner_id is required")
+        return self.owner_id
     
     @property
     def behavior_db(self):
@@ -51,7 +57,7 @@ class BehaviorRecorder:
         try:
             if self.behavior_service:
                 success = self.behavior_service.record_behavior(
-                    user_id="default_user",  # 默认用户ID
+                    owner_id=self._require_owner_id(),
                     action_type=action_type,
                     action_data=action_data,
                     stylist_id=str(stylist_id) if stylist_id else None,
@@ -63,7 +69,7 @@ class BehaviorRecorder:
                     self.logger.error("用户行为服务未初始化")
                     return None
                 behavior_id = self.behavior_db.record_behavior(
-                    user_id="default_user",  # 默认用户ID
+                    user_id=self._require_owner_id(),
                     action_type=action_type,
                     action_data=action_data,
                     stylist_id=stylist_id,
@@ -127,6 +133,7 @@ class BehaviorRecorder:
         """
         try:
             return self.behavior_db.get_user_behaviors(
+                user_id=self._require_owner_id(),
                 action_type=action_type,
                 days_back=days_back
             )

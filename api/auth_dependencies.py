@@ -10,7 +10,7 @@ import re
 import secrets
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config.auth_config import AuthConfig
@@ -166,6 +166,17 @@ def resolve_request_identity(
         display_name=None,
         auth_source="anonymous",
     )
+
+
+def get_request_identity(
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_request_principal),
+    anonymous_owner_id: Optional[str] = Header(
+        default=None,
+        alias="X-Anonymous-Owner-ID",
+    ),
+) -> RequestIdentity:
+    """Resolve the trusted account or validated browser guest identity."""
+    return resolve_request_identity(principal, anonymous_owner_id)
 
 
 def enforce_csrf(

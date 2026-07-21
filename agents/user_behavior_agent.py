@@ -48,12 +48,18 @@ class UserBehaviorAgent:
         """初始化通用聊天模型"""
         return create_chat_model(temperature=0.7)
     
-    def record_behavior(self, action_type: str, action_data: Dict[str, Any], 
-                       stylist_id: str = None, session_id: str = "default_session") -> bool:
+    def record_behavior(
+        self,
+        owner_id: str,
+        action_type: str,
+        action_data: Dict[str, Any],
+        stylist_id: str = None,
+        session_id: str = None,
+    ) -> bool:
         """记录用户行为"""
         try:
             return self.user_behavior_service.record_behavior(
-                user_id="default_user",  # 统一使用default_user作为用户ID
+                owner_id=owner_id,
                 action_type=action_type,
                 action_data=action_data,
                 stylist_id=stylist_id,
@@ -63,10 +69,10 @@ class UserBehaviorAgent:
             self.logger.error(f"记录用户行为失败: {str(e)}")
             return False
     
-    def get_user_analysis(self, user_id: str = "default_user") -> Optional[Dict[str, Any]]:
+    def get_user_analysis(self, owner_id: str) -> Optional[Dict[str, Any]]:
         """获取用户分析数据"""
         try:
-            preferences = self.pattern_analyzer.analyze_user_preferences(user_id)
+            preferences = self.pattern_analyzer.analyze_user_preferences(owner_id)
             if not preferences:
                 return None
             
@@ -85,34 +91,33 @@ class UserBehaviorAgent:
                 'favorite_duration': preferences.get('favorite_duration'),
                 'total_appointments': preferences.get('total_appointments'),
                 'days_since_last_appointment': days_since_last,
-                'should_send_reminder': self.pattern_analyzer.should_send_return_reminder(user_id)
+                'should_send_reminder': self.pattern_analyzer.should_send_return_reminder(owner_id)
             }
         except Exception as e:
             self.logger.error(f"获取用户分析失败: {str(e)}")
             return None
     
-    def generate_reminder_message(self, user_id: str = "default_user") -> Optional[str]:
+    def generate_reminder_message(self, owner_id: str) -> Optional[str]:
         """生成回访提醒消息"""
         try:
-            return self.pattern_analyzer.generate_return_message(user_id)
+            return self.pattern_analyzer.generate_return_message(owner_id)
         except Exception as e:
             self.logger.error(f"生成提醒消息失败: {str(e)}")
             return None
 
-    async def generate_personalized_reminder(self, user_id: str = "default_user", 
-                                           available_times: list = None) -> Optional[str]:
+    async def generate_personalized_reminder(
+        self,
+        owner_id: str,
+        available_times: list = None,
+        display_name: str | None = None,
+    ) -> Optional[str]:
         """使用LLM生成个性化回访提醒消息"""
         try:
-            self.logger.info(f"开始生成个性化提醒，用户ID: {user_id}")
-            self.logger.info(f"可用时间: {available_times}")
-            
             # 获取用户分析数据
-            analysis = self.get_user_analysis(user_id)
+            analysis = self.get_user_analysis(owner_id)
             if not analysis or not analysis.get('favorite_stylist_id'):
                 self.logger.info("没有找到用户偏好数据，使用默认消息")
-                return "尊敬的Tom，您好！好久没见了，要不要预约一次剪发或造型？"
-            
-            self.logger.info(f"用户分析数据: {analysis}")
+                return self._default_reminder(display_name)
             
             # 获取发型师信息
             from db import DatabaseRouter
@@ -124,17 +129,15 @@ class UserBehaviorAgent:
             service = analysis.get('favorite_service', '剪发')
             duration = parse_duration_minutes(analysis.get('favorite_duration')) or 60
             
-            self.logger.info(f"发型师信息: {stylist_name}, 专长: {stylist_specialties}")
-            
             # 格式化可用时间
             times_text = "、".join([t["formatted"] for t in (available_times or [])[:3]]) if available_times else "暂时没有空闲时间"
-            self.logger.info(f"格式化后的时间: {times_text}")
+            addressee = display_name or "顾客"
             
             # 构建LLM提示
             prompt = f"""请为理发店生成一条温暖的回访消息。
 
 客户信息：
-- 称呼：尊敬的Tom
+- 称呼：{addressee}
 - 最喜欢的发型师：{stylist_name}
 - 发型师专长：{stylist_specialties}
 - 常用服务：{service}
@@ -150,28 +153,31 @@ class UserBehaviorAgent:
 6. 控制在80字以内
 7. 直接输出消息内容，不要任何标记"""
             
-            self.logger.info(f"准备调用LLM，提示内容长度: {len(prompt)}")
-            
             # 调用LLM生成个性化消息
             response = await self.llm.ainvoke([{"role": "user", "content": prompt}])
             generated_message = response.content.strip()
-            
-            self.logger.info(f"LLM生成的消息: {generated_message}")
-            
             return generated_message
             
         except Exception as e:
             self.logger.error(f"LLM生成个性化提醒失败: {type(e).__name__}: {str(e)}")
             # 回退到传统方法
-            return self.generate_reminder_message(user_id)
+            return self.generate_reminder_message(owner_id)
 
-    async def get_reminder_with_schedule(self, user_id: str = "default_user") -> Dict[str, Any]:
+    async def get_reminder_with_schedule(
+        self,
+        owner_id: str,
+        display_name: str | None = None,
+    ) -> Dict[str, Any]:
         """获取包含时间安排的完整提醒信息"""
         try:
             # 获取用户分析数据
-            analysis = self.get_user_analysis(user_id)
+            analysis = self.get_user_analysis(owner_id)
             if not analysis or not analysis.get('favorite_stylist_id'):
-                message = await self.generate_personalized_reminder(user_id, [])
+                message = await self.generate_personalized_reminder(
+                    owner_id,
+                    [],
+                    display_name=display_name,
+                )
                 return {
                     "message": message,
                     "stylist_available_times": []
@@ -220,7 +226,11 @@ class UserBehaviorAgent:
                             break
             
             # 生成个性化消息
-            message = await self.generate_personalized_reminder(user_id, available_times)
+            message = await self.generate_personalized_reminder(
+                owner_id,
+                available_times,
+                display_name=display_name,
+            )
             
             return {
                 "message": message,
@@ -230,6 +240,11 @@ class UserBehaviorAgent:
         except Exception as e:
             self.logger.error(f"获取提醒信息失败: {type(e).__name__}: {str(e)}")
             return {
-                "message": "尊敬的Tom，您好！系统暂时无法查询发型师时间，请稍后再试或直接联系我们预约。",
+                "message": "您好，系统暂时无法生成回访建议，请稍后再试。",
                 "stylist_available_times": []
             }
+
+    @staticmethod
+    def _default_reminder(display_name: str | None = None) -> str:
+        greeting = f"{display_name}，您好！" if display_name else "您好！"
+        return f"{greeting}好久没见了，要不要预约一次剪发或造型？"

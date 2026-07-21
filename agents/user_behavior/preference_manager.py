@@ -16,7 +16,7 @@ import logging
 class PreferenceManager:
     """偏好管理器 - 负责用户偏好的管理和分析"""
     
-    def __init__(self, behavior_service = None):
+    def __init__(self, behavior_service=None, owner_id: str | None = None):
         """
         初始化偏好管理器
         
@@ -24,7 +24,13 @@ class PreferenceManager:
             behavior_service: 用户行为服务实例
         """
         self.behavior_service = behavior_service
+        self.owner_id = owner_id
         self.logger = logging.getLogger(__name__)
+
+    def _require_owner_id(self) -> str:
+        if not self.owner_id:
+            raise ValueError("owner_id is required")
+        return self.owner_id
     
     @property
     def behavior_db(self):
@@ -69,13 +75,13 @@ class PreferenceManager:
     def _update_preference(self, preference_type: str, preference_value: Optional[str]) -> bool:
         if self.behavior_service:
             return self.behavior_service.update_user_preference(
-                "default_user",
+                self._require_owner_id(),
                 preference_type,
                 preference_value,
             )
         if self.behavior_db:
             return self.behavior_db.update_user_preference(
-                "default_user",
+                self._require_owner_id(),
                 preference_type,
                 preference_value,
             )
@@ -167,9 +173,13 @@ class PreferenceManager:
         """
         try:
             if self.behavior_service:
-                preferences = self.behavior_service.get_user_preferences("default_user")
+                preferences = self.behavior_service.get_user_preferences(
+                    self._require_owner_id()
+                )
             elif self.behavior_db:
-                preferences = self.behavior_db.get_user_preferences("default_user")
+                preferences = self.behavior_db.get_user_preferences(
+                    self._require_owner_id()
+                )
             else:
                 return {}
 

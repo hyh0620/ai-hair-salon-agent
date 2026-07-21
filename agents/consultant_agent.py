@@ -67,7 +67,7 @@ class ConsultantAgent:
         """
         return await self.consultation_processor.process_consultation(user_input)
 
-    async def consult_stream(self, user_input: str):
+    async def consult_stream(self, user_input: str, owner_id: str | None = None):
         """
         流式输出咨询结果
         
@@ -86,7 +86,9 @@ class ConsultantAgent:
         
         # 3. 处理咨询相关的请求
         async for token in self.consultation_processor.process_consultation_stream(
-            user_input, self.session_id
+            user_input,
+            self.session_id,
+            owner_id=owner_id,
         ):
             yield token
         

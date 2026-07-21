@@ -313,7 +313,7 @@ def test_chat_persistence_uses_session_tracking_id_and_blocks_unsupported_servic
     behavior_calls = []
 
     class RecordingBehaviorService:
-        def record_behavior(self, **kwargs):
+        def record_appointment_behavior(self, **kwargs):
             behavior_calls.append(kwargs)
             return True
 
@@ -345,7 +345,22 @@ def test_chat_persistence_uses_session_tracking_id_and_blocks_unsupported_servic
             (saved.appointment_id,),
         ).fetchone()[0]
     assert persisted_user_id == "chat-session-tracking"
-    assert behavior_calls[0]["user_id"] == "chat-session-tracking"
+    assert behavior_calls[0]["owner_id"] == "chat-session-tracking"
+    assert behavior_calls[0]["session_id"] == "chat-session-tracking"
+
+    account_owner = "account:00000000-0000-4000-8000-000000000001"
+    account_saved = adapter.save_appointment_detailed(
+        str(cut_stylist_id),
+        BOOKING_START + timedelta(days=1),
+        BOOKING_END + timedelta(days=1),
+        _booking_details(service, user_id="forged-browser-owner"),
+        "account-chat-session",
+        owner_id=account_owner,
+    )
+
+    assert account_saved.success is True
+    assert behavior_calls[1]["owner_id"] == account_owner
+    assert behavior_calls[1]["session_id"] == "account-chat-session"
 
 
 def test_stale_candidate_is_rechecked_inside_final_transaction(tmp_path):
