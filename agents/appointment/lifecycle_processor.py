@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Any, Dict, Optional
 
+from config.appointment_status import appointment_status_label
 from config.time_config import time_config
 from services.appointment_service import AppointmentLifecycleResult, AppointmentService
 
@@ -581,8 +582,7 @@ class AppointmentLifecycleProcessor:
             f"时间：{start:%Y-%m-%d %H:%M}–{end:%H:%M}\n"
             f"发型师：{item['stylist_name']}\n"
             f"服务：{item['service_name']}\n"
-            f"状态：{item['status']}\n"
-            f"版本：{item['version']}"
+            f"状态：{appointment_status_label(item.get('status'))}"
         )
 
     @staticmethod
@@ -590,7 +590,8 @@ class AppointmentLifecycleProcessor:
         start = _as_datetime(item["start_time"])
         return (
             f"预约{item['appointment_id']}，{start:%Y-%m-%d %H:%M}，"
-            f"{item['stylist_name']}，{item['service_name']}，状态 {item['status']}"
+            f"{item['stylist_name']}，{item['service_name']}，"
+            f"状态 {appointment_status_label(item.get('status'))}"
         )
 
     @staticmethod

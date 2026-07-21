@@ -60,11 +60,14 @@ def test_lifecycle_api_lists_and_reads_only_owned_appointments(monkeypatch, tmp_
         )
 
     assert listed.status_code == 200
-    assert [item["appointment_id"] for item in listed.json()["data"]["appointments"]] == [
-        own.appointment_id
-    ]
+    listed_items = listed.json()["data"]["appointments"]
+    assert [item["appointment_id"] for item in listed_items] == [own.appointment_id]
+    assert listed_items[0]["status"] == "confirmed"
+    assert listed_items[0]["version"] == 1
     assert detail.status_code == 200
-    assert detail.json()["data"]["appointment"]["version"] == 1
+    detail_item = detail.json()["data"]["appointment"]
+    assert detail_item["status"] == "confirmed"
+    assert detail_item["version"] == 1
     assert hidden.status_code == 404
     assert hidden.json()["data"]["status"] == "not_found"
     assert "ownership" not in hidden.text
@@ -92,6 +95,8 @@ def test_cancel_api_has_typed_idempotent_and_stale_contract(monkeypatch, tmp_pat
     assert cancelled.status_code == 200
     assert cancelled.json()["data"]["status"] == "success"
     assert cancelled.json()["data"]["current_version"] == 2
+    assert cancelled.json()["data"]["appointment"]["status"] == "cancelled"
+    assert cancelled.json()["data"]["appointment"]["version"] == 2
     assert repeated.status_code == 200
     assert repeated.json()["data"]["status"] == "already_cancelled"
     assert stale.status_code == 409
