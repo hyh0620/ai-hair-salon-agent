@@ -350,6 +350,15 @@ def test_account_form_and_user_analysis_page_contract(monkeypatch, tmp_path):
     assert "个人偏好概览" in page_html
     assert page_html.count("基于历史预约数据的智能分析") == 1
     assert "暂无数据" in page_html
+    viewer_label_position = page_html.index(
+        'class="viewer-label">当前分析用户'
+    )
+    viewer_name_position = page_html.index('id="currentViewerName"')
+    viewer_mode_position = page_html.index('id="currentViewerMode"')
+    assert viewer_label_position < viewer_name_position < viewer_mode_position
+    assert 'id="currentViewerName" class="viewer-name">游客' in page_html
+    assert "当前浏览器访客" in page_html
+    assert "? '账户用户'" in page_html
     assert 'href="/" class="nav-btn"' in page_html
     assert "返回主界面" in page_html
     assert "@media (max-width: 420px)" in page_html
