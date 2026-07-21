@@ -29,6 +29,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AuthRateLimitResponse(BaseModel):
+    detail: Literal["请求过于频繁，请稍后再试"] = "请求过于频繁，请稍后再试"
+
+
 class UserPublic(BaseModel):
     id: str
     email: EmailStr

@@ -28,7 +28,8 @@ cp .env.example .env
 
 python -m uvicorn app:app \
   --host 127.0.0.1 \
-  --port 8000
+  --port 8000 \
+  --no-proxy-headers
 ```
 
 `.env.example` 默认 `RAG_MCP_ENABLED=false`，因此可以先运行 Booking 和本地页面，不依赖 MCP Knowledge Service。
