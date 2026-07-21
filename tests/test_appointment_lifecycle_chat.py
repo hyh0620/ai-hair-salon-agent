@@ -369,8 +369,9 @@ def test_backend_overrides_frontend_consultation_route_for_lifecycle_intent(monk
         state_manager=state_manager,
     )
 
-    async def route_task_stream(_message, route):
+    async def route_task_stream(_message, route, owner_id=None):
         task_agent.effective_route = route
+        task_agent.owner_id = owner_id
         yield route
 
     task_agent.route_task_stream = route_task_stream
@@ -387,12 +388,14 @@ def test_backend_overrides_frontend_consultation_route_for_lifecycle_intent(monk
             async for token in chat_handler.ProcessUserInput_stream(
                 "查看我的预约",
                 session_id="session-a",
+                owner_id="owner-a",
                 route="consultation",
             )
         ])
 
     assert asyncio.run(collect()) == "appointment"
     assert task_agent.effective_route == "appointment"
+    assert task_agent.owner_id == "owner-a"
 
 
 def test_appointment_agent_uses_lifecycle_processor_and_preserves_chat_boundary(tmp_path):

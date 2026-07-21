@@ -170,7 +170,7 @@ MCP 解决主项目如何标准化调用独立知识服务；RAG 解决知识服
 
 ---
 
-## 多轮 Session
+## 多轮 Session 与匿名预约所有权
 
 ```text
 用户：预约明天
@@ -189,6 +189,13 @@ MCP 解决主项目如何标准化调用独立知识服务；RAG 解决知识服
 系统：再次检查冲突，在事务内写入预约和排班
 ```
 
+浏览器分别维护两个标识：
+
+* `chat_session_id` 对应 `salon_chat_session_id`，只隔离进程内对话状态、活动预约状态和候选列表；
+* `anonymous_owner_id` 对应 `salon_anonymous_owner_id`，用于限定预约的查询、修改和取消范围；
+* 清空对话只重置 `chat_session_id`，不会更换 `anonymous_owner_id`，因此已保存预约仍可访问；
+* 旧页面只有 Session ID 时，首次升级会将该值复制为初始匿名 owner，以兼容此前创建的预约。
+
 当前聊天 Session：
 
 * 隔离进程内的对话状态、活动预约状态和候选列表；
@@ -196,9 +203,9 @@ MCP 解决主项目如何标准化调用独立知识服务；RAG 解决知识服
 * 注册表具有 TTL 和容量限制；
 * 支持浏览器显式重置。
 
-> 当前实现的是业务对话状态，不是长期用户记忆，也不是生产级身份会话。
+> `chat_session_id` 是短期对话状态，`anonymous_owner_id` 是可持久保存的匿名业务标识；两者都不是认证凭证。
 
-Session 不提供登录认证，不是持久化 Memory 或 Redis 分布式 Session。应用重启后进程内状态不会保留，多实例部署时各实例也不会自动共享状态。
+Session 不提供登录认证，不是持久化 Memory 或 Redis 分布式 Session。应用重启后进程内对话状态不会保留，多实例部署时各实例也不会自动共享状态；浏览器保存的匿名 owner 仍可用于管理 SQLite 中已有预约。
 
 ---
 
@@ -229,6 +236,8 @@ COMMIT 或完整 ROLLBACK
 ```
 
 取消预约时不删除历史记录，而是将预约和对应排班更新为 `cancelled`。修改预约时，未提供字段保持不变；服务变化后重新计算标准价格、时长和结束时间；成功后递增 `version`。
+
+聊天中的“取消本次操作”只清理当前 Session 的未完成槽位和候选，不读取或修改数据库；“取消预约”则进入已保存预约的生命周期流程，并在用户最终确认后执行原子取消。单独输入“取消”不会直接取消数据库预约。
 
 如果请求携带的 `expected_version` 已过期，服务返回 `stale_state`，避免后提交的请求静默覆盖较新修改。
 
@@ -288,7 +297,7 @@ LLM 的作用是理解和组织，不是替代业务事实来源。
 
 | 项目 | 当前结果 |
 | --- | ---: |
-| pytest | 181 passed |
+| pytest | 228 passed |
 | Failed | 0 |
 | Warnings | 0 |
 
@@ -413,9 +422,9 @@ python -m compileall agents api services db config eval
 
 业务服务使用 `appointment_id` 与 `owner_id` 联合查询，在正常业务流程中限制跨 owner 的预约读取和修改。
 
-当前 `owner_id` 来自客户端提交的 `user_id` 或聊天 Session ID，尚未经过登录认证，调用者理论上可以伪造该标识。因此这属于 owner 范围校验，不构成安全意义上的用户身份隔离。
+REST API 的 `owner_id` 仍来自客户端提交的 `user_id`；聊天页面使用独立于对话 Session 的 `anonymous_owner_id`。客户端始终显式提交匿名 owner，旧调用方缺失该字段时暂时回退为规范化后的 `chat_session_id` 并记录弃用日志。
 
-生产环境应接入 JWT、OAuth 或企业身份系统，从可信认证上下文取得身份，并忽略客户端自行提交的 `user_id`。聊天 Session ID 目前只是业务追踪标识，不是认证凭证。
+`anonymous_owner_id` 保存在浏览器 localStorage，调用者理论上可以读取或伪造，因此只构成业务 owner 范围校验，不是认证，也不提供跨设备同步。生产环境应接入 JWT、OAuth 或企业身份系统，由可信 `user_id` 替代匿名 owner，并忽略客户端自行声明的身份。
 
 ### 当前生产化边界
 

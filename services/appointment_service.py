@@ -101,6 +101,8 @@ class AppointmentService:
         end_time: datetime,
         appointment_history: Dict[str, Any],
         session_id: str,
+        *,
+        owner_id: Optional[str] = None,
     ) -> bool:
         """Compatibility wrapper that preserves the historical bool contract."""
         return self.save_appointment_detailed(
@@ -109,6 +111,7 @@ class AppointmentService:
             end_time,
             appointment_history,
             session_id,
+            owner_id=owner_id,
         ).success
 
     def save_appointment_detailed(
@@ -118,6 +121,8 @@ class AppointmentService:
         end_time: datetime,
         appointment_history: Dict[str, Any],
         session_id: str,
+        *,
+        owner_id: Optional[str] = None,
     ) -> AppointmentSaveResult:
         transaction_id = uuid4().hex
         appointment_id = None
@@ -146,6 +151,9 @@ class AppointmentService:
         )
         try:
             details = self.build_appointment_details(appointment_history)
+            resolved_owner_id = str(
+                owner_id or details.get("user_id") or session_id
+            )
             service = normalize_service(details.get("service_key") or details.get("project"))
 
             with self.db_router.session_manager.session_scope(immediate=True) as session:
@@ -174,8 +182,7 @@ class AppointmentService:
 
                 appointment_id = self.appointment_repo.add_appointment_in_session(
                     session,
-                    # A chat session is a tracking identifier, not an authenticated user ID.
-                    user_id=str(details.get("user_id") or session_id),
+                    user_id=resolved_owner_id,
                     session_id=session_id,
                     stylist_id=stylist_id_int,
                     service_key=service.key,

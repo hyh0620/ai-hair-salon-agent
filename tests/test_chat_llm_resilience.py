@@ -46,13 +46,20 @@ def _configure_without_llm(monkeypatch, tmp_path):
     return db_url
 
 
-async def _collect_stream(message, *, session_id="session-a", route="appointment"):
+async def _collect_stream(
+    message,
+    *,
+    session_id="session-a",
+    owner_id=None,
+    route="appointment",
+):
     async def collect():
         return "".join([
             token
             async for token in chat_handler.ProcessUserInput_stream(
                 message,
                 session_id=session_id,
+                owner_id=owner_id,
                 route=route,
             )
         ])
@@ -170,7 +177,7 @@ def test_stream_generator_errors_return_safe_terminal_reply(
     stream_error,
     expected_message,
 ):
-    async def route_task_stream(_message, _route):
+    async def route_task_stream(_message, _route, owner_id=None):
         raise stream_error
         yield  # pragma: no cover - makes this an async generator
 
@@ -194,7 +201,7 @@ def test_stream_generator_errors_return_safe_terminal_reply(
 
 
 def test_empty_agent_stream_gets_nonempty_terminal_reply(monkeypatch):
-    async def route_task_stream(_message, _route):
+    async def route_task_stream(_message, _route, owner_id=None):
         if False:
             yield ""
 

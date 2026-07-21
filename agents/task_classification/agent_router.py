@@ -39,7 +39,11 @@ class AgentRouter:
         if self.consultant_agent and hasattr(self.consultant_agent, 'set_shared_state'):
             self.consultant_agent.set_shared_state(self.state_manager.state)
     
-    async def route_to_appointment(self, task: str) -> AsyncGenerator[str, None]:
+    async def route_to_appointment(
+        self,
+        task: str,
+        owner_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         """
         路由到预约Agent处理
         
@@ -61,7 +65,10 @@ class AgentRouter:
         
         # 调用预约Agent
         try:
-            async for token in self.appointment_agent.run_stream(user_input=task):
+            async for token in self.appointment_agent.run_stream(
+                user_input=task,
+                owner_id=owner_id,
+            ):
                 yield token
         except Exception:
             self.state_manager.reset_to_classify()
@@ -111,7 +118,11 @@ class AgentRouter:
         for char in reply:
             yield char
     
-    async def route_by_state(self, task: str) -> AsyncGenerator[str, None]:
+    async def route_by_state(
+        self,
+        task: str,
+        owner_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         """
         根据当前状态路由任务（用于状态持续的场景）
         
@@ -122,7 +133,10 @@ class AgentRouter:
             str: 流式响应内容
         """
         if self.state_manager.is_in_appointment_flow():
-            async for token in self.appointment_agent.run_stream(user_input=task):
+            async for token in self.appointment_agent.run_stream(
+                user_input=task,
+                owner_id=owner_id,
+            ):
                 yield token
         elif self.state_manager.is_in_consultation_flow():
             async with self.consultant_agent as agent:

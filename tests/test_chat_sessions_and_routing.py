@@ -67,8 +67,9 @@ def test_pending_confirmation_is_isolated_by_session():
 def test_stream_backend_overrides_stale_consultation_route(monkeypatch):
     session = fake_chat_session(pending=True, state=StateEnum.APPOINTMENT)
 
-    async def route_task_stream(message, route):
+    async def route_task_stream(message, route, owner_id=None):
         session.task_agent.effective_route = route
+        session.task_agent.owner_id = owner_id
         yield route
 
     session.task_agent.route_task_stream = route_task_stream
@@ -81,12 +82,14 @@ def test_stream_backend_overrides_stale_consultation_route(monkeypatch):
             async for token in chat_handler.ProcessUserInput_stream(
                 "确认",
                 session_id="session-a",
+                owner_id="owner-a",
                 route="consultation",
             )
         ])
 
     assert asyncio.run(collect()) == "appointment"
     assert session.task_agent.effective_route == "appointment"
+    assert session.task_agent.owner_id == "owner-a"
 
 
 def test_page_uses_backend_router_and_session_aware_reset():
@@ -96,6 +99,8 @@ def test_page_uses_backend_router_and_session_aware_reset():
     assert "'/api/chat/route'" in html
     assert "'/api/chat/reset'" in html
     assert "session_id: sessionId" in html
+    assert "salon_anonymous_owner_id" in html
+    assert "owner_id: ownerId" in html
 
 
 def test_route_and_reset_endpoints_are_side_effect_free(monkeypatch):

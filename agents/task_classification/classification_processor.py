@@ -37,7 +37,11 @@ class ClassificationProcessor:
         self.agent_router = agent_router
         self.unrelated_handler = unrelated_handler
     
-    async def process_task_stream(self, task: str) -> AsyncGenerator[str, None]:
+    async def process_task_stream(
+        self,
+        task: str,
+        owner_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         """
         流式处理任务分类和路由
         
@@ -55,7 +59,10 @@ class ClassificationProcessor:
                 
                 # 根据分类结果路由
                 if category == "appointment" and self.agent_router.appointment_agent:
-                    async for token in self.agent_router.route_to_appointment(task):
+                    async for token in self.agent_router.route_to_appointment(
+                        task,
+                        owner_id=owner_id,
+                    ):
                         yield token
                 elif category == "query" and self.agent_router.consultant_agent:
                     async for token in self.agent_router.route_to_consultation(task):
@@ -66,14 +73,17 @@ class ClassificationProcessor:
                         yield token
             else:
                 # 根据当前状态继续处理
-                async for token in self.agent_router.route_by_state(task):
+                async for token in self.agent_router.route_by_state(
+                    task,
+                    owner_id=owner_id,
+                ):
                     yield token
                     
         except Exception:
             self.state_manager.force_reset()
             raise
     
-    async def process_task_sync(self, task: str) -> str:
+    async def process_task_sync(self, task: str, owner_id: str | None = None) -> str:
         """
         同步处理任务分类和路由（非流式）
         
@@ -90,7 +100,10 @@ class ClassificationProcessor:
                 
                 if category == "appointment" and self.agent_router.appointment_agent:
                     self.state_manager.transition_to_appointment()
-                    return await self.agent_router.appointment_agent.run(user_input=task)
+                    return await self.agent_router.appointment_agent.run(
+                        user_input=task,
+                        owner_id=owner_id,
+                    )
                 elif category == "query" and self.agent_router.consultant_agent:
                     self.state_manager.transition_to_consultation()
                     async with self.agent_router.consultant_agent as agent:
@@ -100,7 +113,10 @@ class ClassificationProcessor:
             else:
                 # 根据当前状态继续处理
                 if self.state_manager.is_in_appointment_flow():
-                    return await self.agent_router.appointment_agent.run(user_input=task)
+                    return await self.agent_router.appointment_agent.run(
+                        user_input=task,
+                        owner_id=owner_id,
+                    )
                 elif self.state_manager.is_in_consultation_flow():
                     async with self.agent_router.consultant_agent as agent:
                         return await agent.consult(task)

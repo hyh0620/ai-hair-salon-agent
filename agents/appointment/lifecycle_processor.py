@@ -1,4 +1,4 @@
-"""Session-scoped chat workflow for appointment query, cancellation and updates."""
+"""Owner-scoped lifecycle operations coordinated by transient chat state."""
 
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from .lifecycle_parser import (
     RESCHEDULE_APPOINTMENT,
     UPDATE_APPOINTMENT,
     ParsedLifecycleRequest,
+    is_abort_current_operation,
+    is_bare_cancel,
     parse_lifecycle_request,
 )
 
@@ -182,9 +184,23 @@ class AppointmentLifecycleProcessor:
         actor_id: str,
         now: datetime,
     ) -> LifecycleChatResult:
+        if is_abort_current_operation(user_input):
+            self.clear_state(history)
+            return LifecycleChatResult(
+                "已退出本次预约操作，已有预约不会受到影响。",
+                True,
+            )
         if history.get("awaiting_lifecycle_selection"):
             return self._handle_selection(user_input, history, actor_id, now)
         action = history.get("pending_lifecycle_action")
+        if is_bare_cancel(user_input) and not (
+            action == "cancel" and history.get("awaiting_lifecycle_confirmation")
+        ):
+            self.clear_state(history)
+            return LifecycleChatResult(
+                "已退出本次预约操作，已有预约不会受到影响。",
+                True,
+            )
         if action == "cancel" and history.get("awaiting_lifecycle_confirmation"):
             return self._handle_cancel_confirmation(user_input, history, actor_id)
         if action == "update" and history.get("awaiting_lifecycle_changes"):
@@ -204,7 +220,10 @@ class AppointmentLifecycleProcessor:
         normalized = _normalize(user_input)
         if normalized in {"不用了", "退出", "取消操作", "取消"}:
             self.clear_state(history)
-            return LifecycleChatResult("已退出本次预约操作。", True)
+            return LifecycleChatResult(
+                "已退出本次预约操作，已有预约不会受到影响。",
+                True,
+            )
 
         candidates = history.get("pending_appointment_candidates") or []
         matches = self._match_candidates(user_input, candidates, now)
@@ -260,7 +279,7 @@ class AppointmentLifecycleProcessor:
         actor_id: str,
     ) -> LifecycleChatResult:
         normalized = _normalize(user_input)
-        if normalized in {"保留预约", "不取消", "不用了", "退出"}:
+        if normalized in {"保留预约", "不取消", "不用了", "退出", "取消"}:
             self.clear_state(history)
             return LifecycleChatResult("已保留原预约。", True)
         if normalized == "换一笔":
@@ -579,7 +598,7 @@ class AppointmentLifecycleProcessor:
         if result.reason == "stylist_not_found":
             return "没有找到指定发型师，原预约保持不变。"
         messages = {
-            "not_found": "没有找到属于当前会话的预约。",
+            "not_found": "没有找到符合条件的预约。",
             "already_cancelled": "该预约已经取消。",
             "not_modifiable": "该预约已经开始、完成或取消，当前不能操作。",
             "stale_state": "预约状态已变化，请重新查询后再操作。",
