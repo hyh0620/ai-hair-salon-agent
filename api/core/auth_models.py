@@ -65,6 +65,26 @@ class AuthMeResponse(BaseResponse):
     data: AuthMeData
 
 
+class AuthRefreshData(BaseModel):
+    status: Literal["authenticated"] = "authenticated"
+    user: UserPublic
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int = Field(gt=0)
+
+
+class AuthRefreshResponse(BaseResponse):
+    data: AuthRefreshData
+
+
+class AuthRefreshConflictResponse(BaseModel):
+    detail: Literal["登录状态正在刷新，请重试"] = "登录状态正在刷新，请重试"
+
+
+class AuthRefreshInvalidResponse(BaseModel):
+    detail: Literal["登录状态已失效，请重新登录"] = "登录状态已失效，请重新登录"
+
+
 class AuthLogoutData(BaseModel):
     status: Literal["logged_out"] = "logged_out"
     session_id: str

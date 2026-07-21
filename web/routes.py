@@ -165,6 +165,9 @@ async def user_behavior_page(request: Request):
 @router.get("/knowledge", response_class=HTMLResponse, summary="知识服务状态页面")
 async def knowledge_page(request: Request):
     """MCP RAG 知识服务状态页面"""
+    from config.auth_config import AuthConfig
+
+    csrf_cookie_name = AuthConfig.from_env().csrf_cookie_name
     try:
         from api.knowledge import get_knowledge_status
 
@@ -174,6 +177,7 @@ async def knowledge_page(request: Request):
             name="knowledge_management.html",
             context={
                 "knowledge_status": knowledge_data,
+                "csrf_cookie_name": csrf_cookie_name,
             },
         )
     except Exception as e:
@@ -183,6 +187,7 @@ async def knowledge_page(request: Request):
             context={
                 "knowledge_status": None,
                 "error": str(e),
+                "csrf_cookie_name": csrf_cookie_name,
             },
         )
 

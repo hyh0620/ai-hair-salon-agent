@@ -466,9 +466,11 @@
         </div>
     </div>
 
+    <script src="/static/auth_refresh.js"></script>
     <script>
         const anonymousOwnerStorageKey = 'salon_anonymous_owner_id';
         const csrfCookieName = {{ csrf_cookie_name | tojson }};
+        window.SalonAuthRefresh.configure({csrfCookieName});
 
         function createAnonymousOwnerId() {
             if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -513,7 +515,7 @@
             const statusElement = document.getElementById('analysis-status');
             statusElement.textContent = '正在加载分析数据……';
             try {
-                const response = await fetch('/api/user-behavior/analysis', {
+                const response = await window.SalonAuthRefresh.fetch('/api/user-behavior/analysis', {
                     method: 'GET',
                     credentials: 'same-origin',
                     headers: identityHeaders()
@@ -569,7 +571,7 @@
                 button.disabled = true;
                 button.classList.add('loading');
                 
-                const response = await fetch('/api/user-behavior/send-reminder', {
+                const response = await window.SalonAuthRefresh.fetch('/api/user-behavior/send-reminder', {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: identityHeaders({csrf: true})
@@ -613,6 +615,13 @@
                 button.classList.remove('loading');
             }
         }
+
+        window.addEventListener('salon-auth-expired', (event) => {
+            const statusElement = document.getElementById('analysis-status');
+            if (statusElement) {
+                statusElement.textContent = event.detail?.message || '登录状态已失效，请重新登录';
+            }
+        });
     </script>
 </body>
 </html>

@@ -132,15 +132,20 @@ cp .env.example .env
     </section>
 </main>
 
+<script src="/static/auth_refresh.js"></script>
 <script>
+window.SalonAuthRefresh.configure({
+    csrfCookieName: {{ csrf_cookie_name | tojson }}
+});
+
 async function refreshStatus() {
-    const res = await fetch('/api/knowledge/');
+    const res = await window.SalonAuthRefresh.fetch('/api/knowledge/');
     const data = await res.json();
     alert(`连接状态：${data.gateway.connected ? '已连接' : '未连接'}\nTools：${(data.gateway.tools || []).join(', ')}`);
 }
 
 async function reconnect() {
-    const res = await fetch('/api/knowledge/reconnect', { method: 'POST' });
+    const res = await window.SalonAuthRefresh.fetch('/api/knowledge/reconnect', { method: 'POST' });
     if (!res.ok) {
         alert('重新连接失败');
         return;

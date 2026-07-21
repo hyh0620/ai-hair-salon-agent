@@ -54,6 +54,8 @@ class AuthRateLimitConfig:
     login_client_account_window_seconds: int = 300
     register_client_limit: int = 3
     register_client_window_seconds: int = 3600
+    refresh_client_limit: int = 30
+    refresh_client_window_seconds: int = 60
     max_buckets: int = 10_000
     cleanup_interval_seconds: int = 60
 
@@ -81,6 +83,18 @@ class AuthRateLimitConfig:
         _validate_range(
             "register_client_window_seconds",
             self.register_client_window_seconds,
+            MIN_WINDOW_SECONDS,
+            MAX_WINDOW_SECONDS,
+        )
+        _validate_range(
+            "refresh_client_limit",
+            self.refresh_client_limit,
+            MIN_LIMIT,
+            MAX_LIMIT,
+        )
+        _validate_range(
+            "refresh_client_window_seconds",
+            self.refresh_client_window_seconds,
             MIN_WINDOW_SECONDS,
             MAX_WINDOW_SECONDS,
         )
@@ -120,6 +134,15 @@ class AuthRateLimitConfig:
             register_client_window_seconds=_bounded_env_int(
                 "AUTH_REGISTER_CLIENT_WINDOW_SECONDS",
                 3600,
+                MIN_WINDOW_SECONDS,
+                MAX_WINDOW_SECONDS,
+            ),
+            refresh_client_limit=_bounded_env_int(
+                "AUTH_REFRESH_CLIENT_LIMIT", 30, MIN_LIMIT, MAX_LIMIT
+            ),
+            refresh_client_window_seconds=_bounded_env_int(
+                "AUTH_REFRESH_CLIENT_WINDOW_SECONDS",
+                60,
                 MIN_WINDOW_SECONDS,
                 MAX_WINDOW_SECONDS,
             ),

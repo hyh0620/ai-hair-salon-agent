@@ -19,6 +19,50 @@ class User(Base):
     updated_at = Column(DateTime, default=utc_now_naive, nullable=False)
 
 
+class AuthSession(Base):
+    """Revocable server-side session bound to one or more access JWTs."""
+
+    __tablename__ = "auth_sessions"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    last_used_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True, index=True)
+    revocation_reason = Column(String(64), nullable=True)
+    created_by = Column(String(32), nullable=True)
+
+
+class AuthRefreshToken(Base):
+    """One-time opaque refresh credential persisted only as a SHA-256 hash."""
+
+    __tablename__ = "auth_refresh_tokens"
+
+    id = Column(String(36), primary_key=True)
+    session_id = Column(
+        String(36),
+        ForeignKey("auth_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    issued_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    replaced_by_token_id = Column(
+        String(36),
+        ForeignKey("auth_refresh_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
 class Stylist(Base):
     __tablename__ = 'stylists'
 

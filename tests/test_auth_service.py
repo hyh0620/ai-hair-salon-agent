@@ -141,13 +141,17 @@ def test_access_token_has_required_claims_and_resolves_active_user(tmp_path):
     service = _service(tmp_path)
     try:
         user = _register(service)
-        token, generated_claims = service.create_access_token(user["id"])
+        issued = service.create_session_for_user(user["id"], created_by="test")
+        token, generated_claims = service.create_access_token(
+            user["id"],
+            issued.auth_session_id,
+        )
         raw_claims = jwt.decode(token, options={"verify_signature": False})
         verified = service.verify_access_token(token)
     finally:
         service.close()
 
-    assert {"sub", "type", "iat", "exp", "iss", "aud", "jti"} <= raw_claims.keys()
+    assert {"sub", "sid", "type", "iat", "exp", "iss", "aud", "jti"} <= raw_claims.keys()
     assert raw_claims["sub"] == user["id"]
     assert raw_claims["type"] == "access"
     assert raw_claims["iss"] == generated_claims["iss"]
@@ -160,12 +164,18 @@ def test_access_token_rejects_expiry_tampering_and_invalid_claims(tmp_path):
     now = datetime.now(timezone.utc)
     try:
         user = _register(service)
-        valid_token, claims = service.create_access_token(user["id"], now=now)
+        issued = service.create_session_for_user(user["id"], created_by="test", now=now)
+        valid_token, claims = service.create_access_token(
+            user["id"],
+            issued.auth_session_id,
+            now=now,
+        )
         encoded_claims = jwt.decode(valid_token, options={"verify_signature": False})
 
         invalid_tokens = []
         expired, _ = service.create_access_token(
             user["id"],
+            issued.auth_session_id,
             now=now - timedelta(hours=2),
             expires_delta=timedelta(minutes=1),
         )
@@ -180,6 +190,7 @@ def test_access_token_rejects_expiry_tampering_and_invalid_claims(tmp_path):
             {"iss": "wrong-issuer"},
             {"type": "refresh"},
             {"sub": ""},
+            {"sid": "not-a-uuid"},
             {"sub": "00000000-0000-4000-8000-000000000000"},
         ):
             changed = encoded_claims | replacements
