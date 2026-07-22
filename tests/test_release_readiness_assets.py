@@ -8,7 +8,22 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHECKLIST = PROJECT_ROOT / "docs" / "RELEASE_CHECKLIST.md"
 RELEASE_NOTES = PROJECT_ROOT / "docs" / "RELEASE_NOTES_V1.0.md"
+DEMO_GUIDE = PROJECT_ROOT / "docs" / "DEMO_GUIDE.md"
+DEMO_RUNBOOK = PROJECT_ROOT / "docs" / "DEMO_RUNBOOK.md"
+AGENT_GUIDE = PROJECT_ROOT / "AGENTS.md"
+RUN_DEMO_SKILL = PROJECT_ROOT / ".github" / "skills" / "run-demo" / "SKILL.md"
+SETUP_SKILL = PROJECT_ROOT / ".github" / "skills" / "setup-environment" / "SKILL.md"
 READINESS_SCRIPT = PROJECT_ROOT / "scripts" / "check_release_readiness.sh"
+PUBLIC_PRESENTATION_FILES = (
+    PROJECT_ROOT / "README.md",
+    DEMO_GUIDE,
+    DEMO_RUNBOOK,
+    PROJECT_ROOT / "docs" / "ARCHITECTURE.md",
+    PROJECT_ROOT / "docs" / "EVALUATION.md",
+    PROJECT_ROOT / "docs" / "RAG_SERVICE_INTEGRATION.md",
+    CHECKLIST,
+    RELEASE_NOTES,
+)
 
 
 @pytest.mark.parametrize(
@@ -72,7 +87,9 @@ def test_checklist_requires_provider_validation_before_tagging() -> None:
 
     assert provider_gate < release_operations
     assert "只有 A 至 G 全部通过后" in content
-    assert "本发布准备 PR 不执行 Tag 或 GitHub Release 命令" in content
+    assert "可重复使用" in content
+    assert "空复选框不代表当前版本验收失败" in content
+    assert "本发布准备 PR" not in content
 
 
 def test_readme_links_release_and_demo_documents() -> None:
@@ -81,15 +98,56 @@ def test_readme_links_release_and_demo_documents() -> None:
         "docs/RELEASE_CHECKLIST.md",
         "docs/RELEASE_NOTES_V1.0.md",
         "docs/DEMO_GUIDE.md",
+        "docs/DEMO_RUNBOOK.md",
         "https://github.com/hyh0620/ai-hair-salon-agent/releases",
     )
 
     assert all(link in content for link in required_links)
+    assert "## 为什么不是普通预约表单或固定工作流？" in content
+    assert "## 面试与演示导航" in content
     assert "## v1.0 发布与验收" in content
+    assert "403 passed" in content
     assert "当前仓库正在准备 v1.0 release candidate" not in content
     assert f"{383} passed" not in content
     assert "383 个自动化测试" not in content
     assert "真实 Provider 验收在显式允许外部调用的隔离流程中执行，不属于 Hermetic CI" in content
+
+    guide = DEMO_GUIDE.read_text(encoding="utf-8")
+    runbook = DEMO_RUNBOOK.read_text(encoding="utf-8")
+    agent_guide = AGENT_GUIDE.read_text(encoding="utf-8")
+    run_demo_skill = RUN_DEMO_SKILL.read_text(encoding="utf-8")
+    setup_skill = SETUP_SKILL.read_text(encoding="utf-8")
+    fixed_demo_date = f"{2026}-09-01"
+
+    assert "# 5 分钟面试演示" in guide
+    assert "pip install" not in guide
+    assert "ingest.py" not in guide
+    assert "Token 重放" not in guide
+    assert "环境准备" in runbook
+    assert "认证 Session 深度演示" in runbook
+    assert "MCP 故障注入" in runbook
+    assert "/" + "Users/" not in runbook
+    assert fixed_demo_date not in guide
+    assert fixed_demo_date not in runbook
+    assert fixed_demo_date not in run_demo_skill
+    assert "disabled by default" not in agent_guide
+    assert "WEATHER_ENABLED=false" not in run_demo_skill
+    assert "start MCP Knowledge Service, then start FastAPI" not in setup_skill
+    assert "FastAPI lifespan" in setup_skill
+    assert "FastAPI lifespan" in guide
+    assert "FastAPI lifespan" in runbook
+    assert "主项目固定使用 Python 3.12" in guide
+    assert "知识服务声明支持 Python 3.11+" in guide
+    assert "主要开发、运行和 CI 版本为 Python 3.12" in runbook
+    assert "项目元数据声明支持 Python 3.11+" in runbook
+    assert all(
+        fixed_demo_date not in path.read_text(encoding="utf-8")
+        for path in PUBLIC_PRESENTATION_FILES
+    )
+
+    release_notes = RELEASE_NOTES.read_text(encoding="utf-8")
+    assert "默认配置关闭真实外部 Provider" not in release_notes
+    assert "创建 v1.0.0 Tag 前应" not in release_notes
 
 
 def test_tracked_text_does_not_contain_stale_test_baselines() -> None:
@@ -113,7 +171,7 @@ def test_tracked_text_does_not_contain_stale_test_baselines() -> None:
 def test_public_start_commands_disable_proxy_headers() -> None:
     for relative_path in (
         "README.md",
-        "docs/DEMO_GUIDE.md",
+        "docs/DEMO_RUNBOOK.md",
         "docs/RELEASE_NOTES_V1.0.md",
     ):
         content = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
@@ -131,10 +189,13 @@ def test_public_docs_do_not_claim_production_deployment() -> None:
 def test_public_docs_distinguish_auth_and_chat_sessions() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     release_notes = RELEASE_NOTES.read_text(encoding="utf-8")
+    guide = DEMO_GUIDE.read_text(encoding="utf-8")
 
     assert "Auth Session 管理登录凭据" in readme
     assert "Auth Session 管理登录凭据" in release_notes
     assert "Chat Session" in readme and "Chat Session" in release_notes
+    assert "游客 owner 是兼容的业务范围，不是安全认证" in guide
+    assert "游客 `anonymous_owner_id` 是可伪造的业务范围，不是安全认证" in release_notes
 
 
 def test_public_docs_distinguish_mcp_from_rag_responsibilities() -> None:

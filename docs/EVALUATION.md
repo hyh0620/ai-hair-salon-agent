@@ -117,7 +117,7 @@ python -m compileall agents api services db config eval
 
 ## 完整评估命令
 
-以下命令使用已激活的 Python 3.12 环境。运行前需要按演示指南启动对应服务：
+以下命令使用已激活的 Python 3.12 环境。运行前需要按[本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)启动对应服务：
 
 ```bash
 NO_PROXY=127.0.0.1,localhost python eval/run_evaluation.py \

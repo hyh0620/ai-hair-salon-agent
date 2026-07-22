@@ -1,110 +1,32 @@
-# 演示指南
+# 5 分钟面试演示
 
-本指南用于在 3 至 5 分钟内展示自然语言预约、确定性排班、知识咨询和故障边界。
+本文面向面试现场，目标是在 3 至 5 分钟内说明项目解决的问题、核心 Agent 设计、确定性预约流程和工程边界。
 
-## 环境准备
+默认应用与 MCP Knowledge Service 已提前配置并启动。环境安装、知识库 Ingest、认证 Session 深度验证和故障注入见[本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)。现场不临时安装依赖，不修改代码或数据库制造结果。
 
-演示涉及两个独立仓库：
+## 演示前条件
 
-* `ai-hair-salon-agent`：FastAPI 业务应用，主要开发与运行版本为 Python 3.12；
-* `mcp-knowledge-service`：独立 MCP Knowledge Service，使用自己的 Python 3.12 虚拟环境。
+* FastAPI 已启动，首页可以访问；
+* MCP Knowledge Service 已配置，FastAPI lifespan 已自动拉起并管理 stdio 子进程；
+* 使用可控的演示数据库，并提前确认未来档期可供展示；
+* 浏览器不展示 Secret、Token、Cookie 或真实用户数据；
+* 知识服务使用独立虚拟环境。主项目固定使用 Python 3.12，知识服务声明支持 Python 3.11+。
 
-两个项目都使用 Python 3.12，但必须保留相互独立的 `.venv`。不要提交本地 `.env`、运行数据、日志、SQLite 数据库或向量索引。
+当前示例配置默认启用无需 API Key 的 Open-Meteo。它只在聊天预约成功并获得真实 `appointment_id` 后调用；Hermetic 测试通过 `EXTERNAL_CALL_POLICY=deny` 阻止真实外部调用。天气失败不改变预约事实，REST 预约接口也不会自动追加天气。
 
-## 启动主项目
+## 0:00–0:30：业务问题和设计原则
 
-```bash
-cd <PATH_TO_AI_HAIR_SALON_AGENT>
+打开 README 顶部或 [`architecture.svg`](../architecture.svg)，用一句话介绍业务问题：
 
-python3.12 -m venv .venv
-source .venv/bin/activate
+> 普通预约表单要求用户先明确服务、时间和发型师，但真实用户经常只说“明天下午想染个显白的颜色”。这个项目让 Agent 理解模糊需求和维护多轮上下文，但价格、排班和预约结果仍由确定性服务控制。
 
-python -m pip install --upgrade pip
-python -m pip install \
-  -c constraints-py312.txt \
-  -r requirements.txt
+展示核心原则：
 
-cp .env.example .env
+> **Agent 负责理解，业务服务负责决策，SQLite 负责保存事实。**
 
-python -m uvicorn app:app \
-  --host 127.0.0.1 \
-  --port 8000 \
-  --no-proxy-headers
-```
+项目中的 Agent 是由中心路由协调、按职责拆分的组件，不是分布式自主 Agent。
 
-`.env.example` 默认 `RAG_MCP_ENABLED=false`，因此可以先运行 Booking 和本地页面，不依赖 MCP Knowledge Service。
-
-常用入口：
-
-* 首页：`http://127.0.0.1:8000`
-* Swagger：`http://127.0.0.1:8000/docs`
-* 系统状态：`http://127.0.0.1:8000/status`
-* 排班页面：`http://127.0.0.1:8000/stylist-schedule`
-* 健康检查：`http://127.0.0.1:8000/health`
-
-## 准备独立 MCP Knowledge Service
-
-知识咨询演示需要单独准备 `mcp-knowledge-service`：
-
-```bash
-cd <PATH_TO_MCP_KNOWLEDGE_SERVICE>
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-cp config/settings.example.yaml config/settings.yaml
-```
-
-根据知识服务自身文档配置 Provider，再导入受控语料：
-
-```bash
-python scripts/ingest.py \
-  --path examples/salon/generated_pdfs \
-  --collection salon_knowledge \
-  --force
-```
-
-`python -m src.mcp_server.server` 启动的是 stdio JSON-RPC Server，不是交互式查询 CLI。正常业务运行时，由主项目的 MCP Client 自动拉起并管理该子进程。
-
-在主项目私有 `.env` 中启用：
-
-```env
-RAG_MCP_ENABLED=true
-RAG_MCP_SERVER_PYTHON=<PATH_TO_MCP_KNOWLEDGE_SERVICE>/.venv/bin/python
-RAG_MCP_SERVER_MODULE=src.mcp_server.server
-RAG_MCP_SERVER_CWD=<PATH_TO_MCP_KNOWLEDGE_SERVICE>
-RAG_MCP_COLLECTION=salon_knowledge
-RAG_MCP_QUERY_TOP_K=4
-```
-
-修改后重启 FastAPI。应用 lifespan 会创建 `MCPKnowledgeGateway`，通过 stdio 启动服务，执行 `initialize` 和 `list_tools`，确认 `query_knowledge_hub` 后复用当前 MCP Session。
-
-## 天气配置
-
-`.env.example` 中的天气默认配置为：
-
-```env
-WEATHER_ENABLED=true
-WEATHER_PROVIDER=open_meteo
-WEATHER_LOCATION_NAME=上海
-```
-
-Open-Meteo 不需要 API Key。天气只在聊天预约已经成功写入并取得真实 `appointment_id` 后调用；失败只省略提醒，不影响预约结果。天气不属于 MCP 或 RAG，REST 预约创建接口也不会自动追加天气。
-
-## 3 至 5 分钟演示顺序
-
-### 1. 展示架构边界
-
-打开 README 和架构图，说明：
-
-```text
-Agent负责理解
-业务服务负责决策
-SQLite负责保存事实
-```
-
-强调 `TaskClassificationAgent`、`AppointmentAgent` 和 `ConsultantAgent` 是中心路由协调的职责组件，不是分布式自主 Agent。
-
-### 2. 模糊档期查询
+## 0:30–1:40：模糊自然语言查询真实档期
 
 在同一浏览器 Session 输入：
 
@@ -112,58 +34,47 @@ SQLite负责保存事实
 明天下午找擅长冷棕色的老师
 ```
 
-预期：
+展示并说明：
 
-* 进入 `search_availability`，不进入 Consultation；
-* 将“明天”“下午”“冷棕色”规范化为日期、时间范围、染发和专长；
-* 使用结构化发型师资料和 SQLite 排班生成真实候选；
-* 此时不写数据库，不调用 MCP，也不调用天气。
+* 后端识别为 `search_availability`，而不是知识咨询；
+* “明天”解析为具体日期；
+* “下午”保留为时间范围，不被擅自改成固定开始时间；
+* “冷棕色”映射为染发服务和结构化专长；
+* `AvailabilityService` 读取真实业务资料和 SQLite 排班；
+* 系统返回真实候选，但此时没有写入预约；
+* 未指定发型师时不会自动选择第一位人员。
 
-### 3. 候选选择与最终确认
+只展示用户可读候选，不需要逐项讲解内部 JSON。
 
-继续输入：
+## 1:40–2:30：候选选择、最终确认和原子写入
+
+根据页面实际返回的候选继续输入：
 
 ```text
 第一个
 确认
 ```
 
-系统先展示具体候选并请求最终确认。确认时再次检查服务能力、营业时间和冲突，随后在同一事务中写入预约和排班，返回真实 `appointment_id`。聊天链路可在成功后追加上海天气。
+说明：
 
-如果演示数据库当前没有候选，不要修改真实数据制造结果；改用测试环境或选择数据库中真实可用的未来日期。
+* Session 将“第一个”解析为刚才的候选，而不是重新做无状态分类；
+* 系统先展示预约摘要并请求最终确认；
+* 最终确认时重新检查发型师服务能力、营业时间和档期冲突；
+* `appointments` 与 `stylist_schedules` 在同一个事务中写入；
+* 成功结果返回数据库生成的真实 `appointment_id`；
+* 天气只在 commit 后作为非阻塞提醒追加。
 
-### 4. 多轮槽位补全
+如果候选在确认前已被其他请求占用，冲突应被明确拒绝，而不是返回预约成功。
 
-清空对话后输入：
+## 2:30–3:20：知识咨询和 Citations
 
-```text
-预约明天
-男士短发
-下午两点
-```
-
-应观察到：
-
-1. 第一轮只保存日期，不生成默认小时；
-2. 第二轮从 `SERVICE_CATALOG` 取得 45 分钟和 88 元，仍等待时间；
-3. 第三轮查询明天 14:00 的真实发型师候选，不自动分配第一位人员；
-4. 选择并确认后才写入 SQLite。
-
-### 5. 并发与冲突保护
-
-展示已占用档期或重复请求时，说明最终确认会再次检查数据库。`BEGIN IMMEDIATE`、SQLite Trigger 和 `version` 保护当前单 SQLite 数据库中的一致性。
-
-这里展示的是单应用实例和单数据库的并发保护，不是分布式锁或分布式事务。
-
-### 6. 知识咨询与 Citations
-
-输入：
+清空当前对话状态后输入：
 
 ```text
 冷棕色适合什么肤色？
 ```
 
-预期进入 Consultation：
+说明调用链：
 
 ```text
 ConsultantAgent
@@ -173,60 +84,62 @@ ConsultantAgent
 → 回答与 Citations
 ```
 
-MCP 负责标准化调用独立服务；RAG 是知识服务内部的检索与融合。RAG 不提供真实排班，也不决定预约结果。
+强调三个边界：
 
-### 7. 可吊销认证会话
+* MCP 是主项目调用独立知识服务的协议；
+* RAG 是知识服务内部的检索、融合和引用链路；
+* Citations 展示答案来源，但 RAG 不决定真实排班或预约成功。
 
-使用 `bash scripts/run_isolated_validation.sh` 启动临时 SQLite 和禁用外部 Provider 的验收环境。认证演示可覆盖：
+## 3:20–4:10：工程可靠性证据
 
-1. 注册或登录后，浏览器获得短期 Access Cookie、HttpOnly Refresh Cookie 和 CSRF Cookie；响应 JSON 不包含 Refresh Token；
-2. 令 Access Token 在受控测试环境中过期后访问 `/api/auth/me`，页面只执行一次 Refresh 并重试原请求，`chat_session_id` 和预约 owner 不变化；
-3. 正常 Refresh 后旧 Token 只能在 3 秒 Grace Window 内得到 409，窗口外重放会撤销当前 Auth Session；
-4. Logout 后，该 Session 已复制的 Bearer Token 立即返回 401；Access 已过期时仍可使用 Refresh Cookie 完成退出；
-5. 同一账户建立两个独立 Session，退出其中一个不会影响另一个。
+默认只选择一项证据，不在现场重复执行全部验收：
 
-演示中不要打印 Access Token、Refresh Token、Cookie、Hash、邮箱、JWT Secret 或任何 Provider Key。Refresh 当前只支持同源 Cookie Jar，不提供 JSON Body Token。
+* 展示同一发型师重叠时段被拒绝；或
+* 打开 [`EVALUATION.md`](EVALUATION.md)，说明 Functional Contract 与 RAG 指标分开统计；或
+* 说明已验证的故障边界：MCP 不可用时 Consultation 返回 503，Booking 保持可用。
 
-### 8. 故障与项目边界
+候选查询不是档期锁定。最终确认必须在事务中二次检查；`BEGIN IMMEDIATE`、SQLite Trigger 和 `version` 保护的是单个 SQLite 数据库的一致性，不是分布式事务。
 
-可以展示 `eval/mcp_runtime_failure_e2e.py` 已覆盖的故障契约：MCP 不可用时 Consultation 返回 503，而 Booking 仍可运行。
+## 4:10–5:00：总结和项目边界
 
-最后说明当前 owner 范围校验和 Session 的真实边界：
+建议总结：
 
-* 登录账户 owner 由验证后的 JWT `sub` 生成，游客 owner 仍是可伪造的浏览器业务范围；
-* Auth Session 持久化凭据状态，Chat Session 仍是进程内对话状态，二者不是同一标识；
-* 当前实现没有 MFA、设备管理 UI、分布式 Session 或生产级身份基础设施。
+> 这个项目的重点不是让 LLM 直接控制业务，而是把概率性理解和确定性执行分开。Agent 处理模糊表达和多轮上下文，业务服务与数据库保证价格、排班和预约结果可信。
 
-## 建议演示问题
+主动说明当前边界：
 
-```text
-今天下午哪些理发师有空？
-明天下午找擅长冷棕色的老师
-预约明天
-男士短发
-下午两点
-染发前后有什么注意事项？
-烫发后多久可以洗头？
-门店几点营业？
-```
+* 面向单应用实例和单 SQLite 数据库；
+* Chat Session 保存在应用进程内；
+* 暂无支付、完整员工后台和生产级监控；
+* 游客 owner 是兼容的业务范围，不是安全认证；
+* 当前没有真实商业流量验证，也不声称已经生产部署。
 
-## 可以说明的能力
+## 技术追问备用演示
 
-* 规则预路由、Session 状态和 LLM 辅助理解协同工作；
-* 价格、标准时长、真实排班和预约结果由确定性服务控制；
-* 未指定发型师时先返回候选，用户选择并确认后才写入；
-* 创建、取消和修改共享原子事务与乐观并发校验；
-* Access JWT 绑定可吊销 Auth Session，Refresh Token 单次使用且数据库只保存 Hash；
-* MCP Knowledge Service 提供带 Citations 的 RAG 知识咨询；
-* 天气是成功预约后的非阻塞上下文增强；
-* 已保存评估快照中 Functional Contract 为 28 / 28，RAG 指标单独报告。
+这些内容用于面试官继续追问，不属于默认 5 分钟流程。
 
-## 不应夸大的能力
+### 为什么需要 Agent，而不是固定 Workflow？
 
-* 不声称已经生产部署或拥有真实商业流量；
-* 不把游客 owner 范围校验描述为安全认证；
-* 不把进程内 Session 描述为长期 Memory 或分布式 Session；
-* 不把 SQLite 事务描述为分布式并发方案；
-* 不把职责拆分的 Agent 组件描述为分布式自主多 Agent；
-* 不声称 RAG 完美或评估结果是通用 Benchmark；
-* 不把天气描述为 MCP Tool 或 RAG 组件。
+固定 Workflow 负责确定性执行；Agent 解决表达多样、字段缺失、多轮上下文和咨询/预约切换。最终业务规则仍由 Workflow 和 Service 执行。项目采用的是“Agent + 确定性 Workflow”，不是用 Agent 替代 Workflow。
+
+### 并发如何处理？
+
+候选查询不锁定档期。最终确认重新校验，并通过 `BEGIN IMMEDIATE`、SQLite Trigger 和 `version` 防止单数据库中的重叠写入和静默覆盖。这不是分布式锁或分布式事务。
+
+### 为什么使用 MCP？
+
+独立知识服务可以被其他应用复用；MCP 统一 `tools/list` 和 tool call，主业务无需维护第二套调用协议。MCP 不是检索算法本身，Dense Retrieval、BM25 和 RRF 才是知识服务内部的 RAG 链路。
+
+### 如何评估 RAG？
+
+项目分别报告 Functional Contract 和 Hit@1、Hit@3、MRR、Citation expected-source match。当前结果来自小型受控语料，用于可复现回归，不代表生产准确率。
+
+### 认证为什么做得较完整？
+
+账户预约 owner 必须来自服务器验证身份；服务端 Auth Session 支持吊销，Refresh Token 使用轮换和重放检测。这是可信业务身份的工程边界，不是默认 5 分钟演示重点。深度流程见 Runbook。
+
+## 深入阅读
+
+* [系统架构与技术边界](ARCHITECTURE.md)
+* [测试与 RAG 评估](EVALUATION.md)
+* [本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)
