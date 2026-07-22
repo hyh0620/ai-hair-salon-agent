@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/knowledge", tags=["知识服务状态"])
 @router.get(
     "/",
     summary="获取 MCP 知识服务状态",
-    description="返回主应用持有的 MCP ClientSession、collection 和 tool discovery 状态。",
+    description="返回主应用持有的 MCP 会话、知识集合和工具发现状态。",
 )
 async def get_knowledge_status():
     gateway = get_mcp_knowledge_gateway()

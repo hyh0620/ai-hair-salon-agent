@@ -113,7 +113,7 @@ def register(
     "/login",
     response_model=AuthSessionResponse,
     summary="登录本地账户",
-    description="验证 Argon2 密码，为本次登录创建独立认证会话并签发短期 Access Token。",
+    description="验证 Argon2 密码，为本次登录创建独立认证会话并签发短期访问令牌。",
     responses=RATE_LIMIT_RESPONSES,
 )
 def login(
@@ -146,16 +146,16 @@ def login(
     "/refresh",
     response_model=AuthRefreshResponse,
     summary="轮换当前登录凭据",
-    description="使用 HttpOnly Cookie 中的一次性 Refresh Token 原子轮换登录凭据。",
+    description="使用 HttpOnly Cookie 中的一次性刷新令牌原子轮换登录凭据。",
     responses={
         **RATE_LIMIT_RESPONSES,
         status.HTTP_401_UNAUTHORIZED: {
             "model": AuthRefreshInvalidResponse,
-            "description": "Refresh Token 或服务端认证会话无效。",
+            "description": "刷新令牌或服务端认证会话无效。",
         },
         status.HTTP_409_CONFLICT: {
             "model": AuthRefreshConflictResponse,
-            "description": "同一个 Refresh Token 正在被另一个请求轮换。",
+            "description": "同一个刷新令牌正在被另一个请求轮换。",
             "headers": {
                 "Retry-After": {
                     "description": "再次尝试前等待的秒数。",
@@ -247,7 +247,7 @@ def me(
     "/logout",
     response_model=AuthLogoutResponse,
     summary="退出当前认证会话",
-    description="撤销当前服务端认证会话、轮换聊天 Session 并清除认证 Cookie。",
+    description="撤销当前服务端认证会话、轮换对话会话并清除认证 Cookie。",
 )
 def logout(
     request: Request,

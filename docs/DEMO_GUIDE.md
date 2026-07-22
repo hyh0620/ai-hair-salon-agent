@@ -1,18 +1,18 @@
-# 5 分钟面试演示
+# 5 分钟项目演示
 
-本文面向面试现场，目标是在 3 至 5 分钟内说明项目解决的问题、核心 Agent 设计、确定性预约流程和工程边界。
+本文适用于面试、项目介绍或技术评审场景，目标是在 3 至 5 分钟内说明项目解决的问题、核心 Agent 设计、确定性预约流程和工程边界。
 
-默认应用与 MCP Knowledge Service 已提前配置并启动。环境安装、知识库 Ingest、认证 Session 深度验证和故障注入见[本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)。现场不临时安装依赖，不修改代码或数据库制造结果。
+默认应用与 MCP Knowledge Service 已提前配置并启动。环境安装、知识导入（Ingest）、认证会话深度验证和故障注入见[本地运行与深度演示手册](DEMO_RUNBOOK.md)。演示期间不临时安装依赖，不修改代码或数据库制造结果。
 
 ## 演示前条件
 
 * FastAPI 已启动，首页可以访问；
-* MCP Knowledge Service 已配置，FastAPI lifespan 已自动拉起并管理 stdio 子进程；
+* MCP Knowledge Service 已配置，FastAPI 应用生命周期（lifespan）已自动拉起并管理 stdio 子进程；
 * 使用可控的演示数据库，并提前确认未来档期可供展示；
-* 浏览器不展示 Secret、Token、Cookie 或真实用户数据；
+* 浏览器不展示密钥、令牌、Cookie 或真实用户数据；
 * 知识服务使用独立虚拟环境。主项目固定使用 Python 3.12，知识服务声明支持 Python 3.11+。
 
-当前示例配置默认启用无需 API Key 的 Open-Meteo。它只在聊天预约成功并获得真实 `appointment_id` 后调用；Hermetic 测试通过 `EXTERNAL_CALL_POLICY=deny` 阻止真实外部调用。天气失败不改变预约事实，REST 预约接口也不会自动追加天气。
+当前示例配置默认启用无需 API Key 的 Open-Meteo。它只在聊天预约成功并获得真实 `appointment_id` 后调用；隔离式（Hermetic）测试通过 `EXTERNAL_CALL_POLICY=deny` 阻止真实外部调用。天气失败不改变预约事实，REST 预约接口也不会自动追加天气。
 
 ## 0:00–0:30：业务问题和设计原则
 
@@ -28,7 +28,7 @@
 
 ## 0:30–1:40：模糊自然语言查询真实档期
 
-在同一浏览器 Session 输入：
+在同一浏览器会话中输入：
 
 ```text
 明天下午找擅长冷棕色的老师
@@ -57,16 +57,16 @@
 
 说明：
 
-* Session 将“第一个”解析为刚才的候选，而不是重新做无状态分类；
+* 当前会话将“第一个”解析为刚才的候选，而不是重新做无状态分类；
 * 系统先展示预约摘要并请求最终确认；
 * 最终确认时重新检查发型师服务能力、营业时间和档期冲突；
 * `appointments` 与 `stylist_schedules` 在同一个事务中写入；
 * 成功结果返回数据库生成的真实 `appointment_id`；
-* 天气只在 commit 后作为非阻塞提醒追加。
+* 天气只在预约事务提交后作为非阻塞提醒追加。
 
 如果候选在确认前已被其他请求占用，冲突应被明确拒绝，而不是返回预约成功。
 
-## 2:30–3:20：知识咨询和 Citations
+## 2:30–3:20：知识咨询和引用来源
 
 清空当前对话状态后输入：
 
@@ -80,23 +80,23 @@
 ConsultantAgent
 → MCPKnowledgeGateway
 → query_knowledge_hub
-→ Dense Retrieval + BM25 + RRF
-→ 回答与 Citations
+→ 向量检索 + BM25 + RRF
+→ 回答与引用来源
 ```
 
 强调三个边界：
 
 * MCP 是主项目调用独立知识服务的协议；
 * RAG 是知识服务内部的检索、融合和引用链路；
-* Citations 展示答案来源，但 RAG 不决定真实排班或预约成功。
+* 引用来源（Citations）展示答案依据，但 RAG 不决定真实排班或预约成功。
 
 ## 3:20–4:10：工程可靠性证据
 
 默认只选择一项证据，不在现场重复执行全部验收：
 
 * 展示同一发型师重叠时段被拒绝；或
-* 打开 [`EVALUATION.md`](EVALUATION.md)，说明 Functional Contract 与 RAG 指标分开统计；或
-* 说明已验证的故障边界：MCP 不可用时 Consultation 返回 503，Booking 保持可用。
+* 打开 [`EVALUATION.md`](EVALUATION.md)，说明功能契约与 RAG 指标分开统计；或
+* 说明已验证的故障边界：MCP 不可用时，知识咨询返回 HTTP 503，预约功能保持可用。
 
 候选查询不是档期锁定。最终确认必须在事务中二次检查；`BEGIN IMMEDIATE`、SQLite Trigger 和 `version` 保护的是单个 SQLite 数据库的一致性，不是分布式事务。
 
@@ -109,37 +109,37 @@ ConsultantAgent
 主动说明当前边界：
 
 * 面向单应用实例和单 SQLite 数据库；
-* Chat Session 保存在应用进程内；
+* 对话会话保存在应用进程内；
 * 暂无支付、完整员工后台和生产级监控；
-* 游客 owner 是兼容的业务范围，不是安全认证；
+* 游客预约归属是兼容的业务范围，不是安全认证；
 * 当前没有真实商业流量验证，也不声称已经生产部署。
 
-## 技术追问备用演示
+## 常见技术问题
 
-这些内容用于面试官继续追问，不属于默认 5 分钟流程。
+以下内容用于进一步说明关键技术取舍，不属于默认 5 分钟演示流程。
 
-### 为什么需要 Agent，而不是固定 Workflow？
+### Agent 与确定性工作流如何协作？
 
-固定 Workflow 负责确定性执行；Agent 解决表达多样、字段缺失、多轮上下文和咨询/预约切换。最终业务规则仍由 Workflow 和 Service 执行。项目采用的是“Agent + 确定性 Workflow”，不是用 Agent 替代 Workflow。
+确定性工作流负责执行；Agent 组件处理表达多样、字段缺失、多轮上下文和咨询/预约切换。最终业务规则仍由工作流和业务服务执行。项目采用“Agent + 确定性工作流”，不是用 Agent 替代工作流。
 
 ### 并发如何处理？
 
-候选查询不锁定档期。最终确认重新校验，并通过 `BEGIN IMMEDIATE`、SQLite Trigger 和 `version` 防止单数据库中的重叠写入和静默覆盖。这不是分布式锁或分布式事务。
+候选查询不锁定档期。最终确认重新校验，并通过 `BEGIN IMMEDIATE`、SQLite 触发器和 `version` 防止单数据库中的重叠写入和静默覆盖。这不是分布式锁或分布式事务。
 
 ### 为什么使用 MCP？
 
-独立知识服务可以被其他应用复用；MCP 统一 `tools/list` 和 tool call，主业务无需维护第二套调用协议。MCP 不是检索算法本身，Dense Retrieval、BM25 和 RRF 才是知识服务内部的 RAG 链路。
+独立知识服务可以被其他应用复用；MCP 统一 `tools/list` 和工具调用，主业务无需维护第二套调用协议。MCP 不是检索算法本身，向量检索、BM25 和 RRF 才是知识服务内部的 RAG 链路。
 
 ### 如何评估 RAG？
 
-项目分别报告 Functional Contract 和 Hit@1、Hit@3、MRR、Citation expected-source match。当前结果来自小型受控语料，用于可复现回归，不代表生产准确率。
+项目分别报告功能契约和 Hit@1、Hit@3、MRR、引用来源与预期来源匹配。当前结果来自小型受控语料，用于可复现回归，不代表生产准确率。
 
 ### 认证为什么做得较完整？
 
-账户预约 owner 必须来自服务器验证身份；服务端 Auth Session 支持吊销，Refresh Token 使用轮换和重放检测。这是可信业务身份的工程边界，不是默认 5 分钟演示重点。深度流程见 Runbook。
+账户预约归属必须来自服务器验证身份；服务端认证会话支持吊销，刷新令牌使用轮换和重放检测。这是可信业务身份的工程边界，不是默认 5 分钟演示重点。深度流程见运行手册。
 
 ## 深入阅读
 
 * [系统架构与技术边界](ARCHITECTURE.md)
 * [测试与 RAG 评估](EVALUATION.md)
-* [本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)
+* [本地运行与深度演示手册](DEMO_RUNBOOK.md)

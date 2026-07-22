@@ -2,19 +2,19 @@
 
 本文件是可重复使用的版本发布流程模板。每次发布应在独立的实际执行记录中勾选结果；仓库中的空复选框不代表当前版本验收失败。当前 v1.0 验收摘要见 [`../README.md`](../README.md) 和 [`RELEASE_NOTES_V1.0.md`](RELEASE_NOTES_V1.0.md)，正式版本状态以 [GitHub Releases](https://github.com/hyh0620/ai-hair-salon-agent/releases) 为准。
 
-只有全部门禁通过，并完成明确隔离的真实 Provider 验收后，才可以创建 Tag 和 GitHub Release。
+只有全部门禁通过，并完成明确隔离的真实外部服务验收后，才可以创建版本标签（Tag）和 GitHub 版本发布（Release）。
 
 ## A. Git 与版本基线
 
-- [ ] `main` 与 `origin/main` 指向同一 Commit。
+- [ ] `main` 与 `origin/main` 指向同一提交。
 - [ ] 工作区干净。
-- [ ] Required Check 为 `Python 3.12`，且结果成功。
+- [ ] 必需检查项为 `Python 3.12`，且结果成功。
 - [ ] 所有计划纳入 v1.0 的 PR 已合并。
 - [ ] 没有待处理的发布阻断问题。
-- [ ] 最终 Tag 指向已经通过全部发布门禁的 `main` Commit。
-- [ ] 创建 Tag 前重新记录并复核完整 Commit SHA。
+- [ ] 最终版本标签指向已经通过全部发布门禁的 `main` 提交。
+- [ ] 创建版本标签前重新记录并复核完整提交 SHA。
 
-## B. Hermetic 自动化验证
+## B. 隔离式自动化验证
 
 在已激活的 Python 3.12 开发环境中执行：
 
@@ -26,9 +26,9 @@ git diff --check
 ```
 
 - [ ] 全部测试通过。
-- [ ] 0 failures。
-- [ ] 0 warnings。
-- [ ] 没有真实 Provider 调用。
+- [ ] 0 个失败。
+- [ ] 0 个警告。
+- [ ] 没有真实外部服务调用。
 - [ ] 没有应用外部网络访问。
 - [ ] 没有真实数据库访问。
 - [ ] 没有读取真实 `.env`。
@@ -50,7 +50,7 @@ bash scripts/run_isolated_validation.sh
 - [ ] 用户行为分析可用。
 - [ ] 游客模式可用。
 - [ ] 进程退出后临时 SQLite 和临时目录被清理。
-- [ ] 没有真实 Provider 调用。
+- [ ] 没有真实外部服务调用。
 
 ## D. 预约业务验收
 
@@ -77,68 +77,68 @@ bash scripts/run_isolated_validation.sh
 - [ ] 登录可用。
 - [ ] 登录和注册限流生效。
 - [ ] Access JWT 包含内部 `sid`。
-- [ ] Access Token 使用短期默认有效期。
-- [ ] Refresh Cookie 为 HttpOnly。
-- [ ] Refresh Token 不进入 JSON 响应。
-- [ ] 数据库只保存 Refresh Token Hash。
-- [ ] Refresh Token 在单个写事务中轮换。
-- [ ] Grace Window 内并发重复刷新返回冲突且不误撤销 Session。
-- [ ] Grace Window 外重放撤销当前 Auth Session。
-- [ ] Logout 立即使该 Session 中复制的 Bearer Token 失效。
-- [ ] Access 过期后仍可通过 Refresh Cookie 完成 Logout。
-- [ ] 同一账户的多个 Auth Session 相互独立。
-- [ ] Cookie 写请求和 Refresh 执行 CSRF 校验。
+- [ ] 访问令牌使用短期默认有效期。
+- [ ] 刷新 Cookie 为 HttpOnly。
+- [ ] 刷新令牌不进入 JSON 响应。
+- [ ] 数据库只保存刷新令牌哈希。
+- [ ] 刷新令牌在单个写事务中轮换。
+- [ ] 宽限窗口内并发重复刷新返回冲突且不误撤销认证会话。
+- [ ] 宽限窗口外重放撤销当前认证会话。
+- [ ] 退出登录立即使该会话中复制的 Bearer 令牌失效。
+- [ ] 访问令牌过期后仍可通过刷新 Cookie 完成退出登录。
+- [ ] 同一账户的多个认证会话相互独立。
+- [ ] Cookie 写请求和凭据刷新执行 CSRF 校验。
 - [ ] 代理转发头不能绕过认证限流。
-- [ ] Chat Session 与 Auth Session 相互独立。
-- [ ] Logout 后保留 `anonymous_owner_id`。
+- [ ] 对话会话与认证会话相互独立。
+- [ ] 退出登录后保留 `anonymous_owner_id`。
 
-## F. 真实 Provider 验收
+## F. 真实外部服务验收
 
-每次需要验证真实集成时，都应使用隔离环境和私有配置，并在完成后恢复安全配置。真实 Provider 验收不属于 Hermetic CI，不能用 pytest Mock 结果替代。
+每次需要验证真实集成时，都应使用隔离环境和私有配置，并在完成后恢复安全配置。真实外部服务验收不属于隔离式 CI，不能用 pytest 模拟结果替代。
 
 - [ ] 显式设置 `EXTERNAL_CALL_POLICY=allow`。
 - [ ] Qwen 分类或回复成功。
 - [ ] MCP Knowledge Service 成功初始化。
 - [ ] `query_knowledge_hub` 可以调用。
-- [ ] 冷棕色咨询返回 Citations。
+- [ ] 冷棕色咨询返回引用来源。
 - [ ] RAG 来源符合当前受控语料。
-- [ ] MCP 故障时 Booking 仍可运行。
+- [ ] MCP 故障时预约功能仍可运行。
 - [ ] Open-Meteo 只在聊天预约成功后调用。
 - [ ] 天气失败不撤销已经保存的预约。
 - [ ] 验收结束后恢复拒绝外部调用的安全配置。
-- [ ] 截图和日志不包含任何 Provider Key。
+- [ ] 截图和日志不包含任何外部服务密钥。
 
 ## G. 演示验收
 
 - [ ] 3 至 5 分钟演示可以完整跑通。
 - [ ] 演示数据库使用可控数据。
 - [ ] 现场演示不依赖临时修改代码。
-- [ ] 已准备 Booking 演示。
-- [ ] 已准备 Consultation 与 Citations 演示。
+- [ ] 已准备预约演示。
+- [ ] 已准备知识咨询与引用来源演示。
 - [ ] 默认演示聚焦业务价值、Agent 边界和可信预约执行。
-- [ ] 认证 Session 与故障注入作为备用深度演示准备完毕。
+- [ ] 认证会话与故障注入作为备用深度演示准备完毕。
 - [ ] 已准备项目限制说明。
-- [ ] 不展示 Secret。
+- [ ] 不展示密钥。
 - [ ] 不展示真实用户数据。
 
 ## H. 发布操作
 
-只有 A 至 G 全部通过后，才允许使用已经记录的验证 Commit 创建并推送 Tag：
+只有 A 至 G 全部通过后，才允许使用已经记录的验证提交创建并推送版本标签：
 
 ```bash
 git tag -a v1.0.0 <VERIFIED_COMMIT> -m "AI Hair Salon Agent v1.0.0"
 git push origin v1.0.0
 ```
 
-Tag 推送后再根据 [`RELEASE_NOTES_V1.0.md`](RELEASE_NOTES_V1.0.md) 创建 GitHub Release。
+版本标签推送后再根据 [`RELEASE_NOTES_V1.0.md`](RELEASE_NOTES_V1.0.md) 创建 GitHub 版本发布。
 
 ## I. 发布后检查
 
-- [ ] Tag 指向正确的已验证 Commit。
-- [ ] GitHub Release 可见。
+- [ ] 版本标签指向正确的已验证提交。
+- [ ] GitHub 版本发布可见。
 - [ ] README 链接正常。
-- [ ] Release Notes 排版正常。
+- [ ] 版本说明排版正常。
 - [ ] 安装和启动命令可以直接复制执行。
-- [ ] Release 中没有敏感文件或本地运行数据。
+- [ ] 版本发布中没有敏感文件或本地运行数据。
 - [ ] `main` 工作区保持干净。
 - [ ] 发布后的 CI 仍然成功。
