@@ -56,11 +56,23 @@ AI Hair Salon Agent 是一个自然语言驱动的理发店预约与知识咨询
 
 Functional Contract 与 RAG 检索质量分别评估。RAG 数字来自 7 份源文档、24 个语义切片组成的小型受控语料，是仓库中保存的 Verified Evaluation Snapshot，不代表生产准确率或通用 Benchmark。
 
+## 真实 Provider 验收摘要
+
+- OpenAI-compatible Qwen `qwen-plus` 调用成功。
+- MCP stdio 初始化和 `query_knowledge_hub` 调用成功。
+- Consultation 返回 4 个 Citations，并命中预期知识源。
+- Open-Meteo 在预约事务 commit 并生成真实 `appointment_id` 后调用成功。
+- MCP 故障时 Consultation 明确降级，Booking 保持可用。
+- Chroma 查询前后 Collection ID、24 个 Chunk、7 个 Document、24 个 Embedding、Metadata 和 BM25 逻辑内容不变。
+- Chroma SQLite/HNSW 文件变化属于 expected runtime storage writes，不代表业务数据修改。
+
+该验收使用显式允许外部调用的隔离流程，不属于 Hermetic CI；CI 继续拒绝真实外部 Provider。
+
 ## Upgrade Note
 
 - 旧版本中不含 `sid` 的 Access Token 在升级后失效，用户需要重新登录。
 - 不迁移或提交本地 `.env`、SQLite 数据库、Provider Secret、日志或索引数据。
-- 创建 v1.0.0 Tag 前应按发布检查清单重新验证最终 `main` Commit。
+- v1.0.0 Tag 应指向通过发布门禁、Hermetic CI 和真实 Provider 验收的最终 `main` Commit。
 
 ## Known Limitations
 
@@ -95,11 +107,11 @@ python -m uvicorn app:app \
   --no-proxy-headers
 ```
 
-默认配置关闭真实外部 Provider，可以先运行 Booking 和本地页面。账户功能需要在私有 `.env` 中设置符合要求的 JWT Secret，但不得把该文件提交到仓库。
+公开示例配置不包含真实 LLM 或 Embedding 凭据，RAG MCP 默认关闭，因此 Booking 与本地页面可以先独立启动；启用真实 Provider 需要在私有 `.env` 和独立 MCP Knowledge Service 中完成本地配置。账户功能需要在私有 `.env` 中设置符合要求的 JWT Secret，但不得把该文件提交到仓库。
 
 ## Demo
 
-参见 [Demo Guide](https://github.com/hyh0620/ai-hair-salon-agent/blob/main/docs/DEMO_GUIDE.md)。
+参见 [5 分钟面试演示](DEMO_GUIDE.md) 和 [本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)。
 
 ## Related Repository
 

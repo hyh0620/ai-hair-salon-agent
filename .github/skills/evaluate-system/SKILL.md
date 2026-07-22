@@ -7,7 +7,7 @@ description: Run the reproducible evaluation suite and explain functional contra
 
 ## Pipeline
 
-1. Start normal app on port 8000.
+1. Prepare the normal app on port 8000. When MCP is enabled, configure its interpreter, module, working directory and Collection; FastAPI lifespan starts the stdio child process.
 2. Start MCP-disabled app on port 8002:
    ```bash
    RAG_MCP_ENABLED=false DATABASE_URL=sqlite:////tmp/salon_eval_8002.db \
@@ -33,4 +33,6 @@ description: Run the reproducible evaluation suite and explain functional contra
 ## Rules
 
 - Do not present pytest mock results as real integration results.
+- Keep Hermetic CI (`EXTERNAL_CALL_POLICY=deny`) separate from any explicitly allowed real Provider evaluation.
 - Do not commit raw local reports.
+- Do not print Provider credentials, authentication tokens, cookies or local runtime data.

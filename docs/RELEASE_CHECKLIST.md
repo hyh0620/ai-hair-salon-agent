@@ -1,6 +1,8 @@
-# v1.0 Release Checklist
+# v1.0 发布流程与验证清单
 
-本清单用于准备和验证 AI Hair Salon Agent v1.0.0。只有全部门禁通过，并完成明确隔离的真实 Provider 验收后，才可以创建 Tag 和 GitHub Release。
+本文件是可重复使用的版本发布流程模板。每次发布应在独立的实际执行记录中勾选结果；仓库中的空复选框不代表当前版本验收失败。当前 v1.0 验收摘要见 [`../README.md`](../README.md) 和 [`RELEASE_NOTES_V1.0.md`](RELEASE_NOTES_V1.0.md)，正式版本状态以 [GitHub Releases](https://github.com/hyh0620/ai-hair-salon-agent/releases) 为准。
+
+只有全部门禁通过，并完成明确隔离的真实 Provider 验收后，才可以创建 Tag 和 GitHub Release。
 
 ## A. Git 与版本基线
 
@@ -92,7 +94,7 @@ bash scripts/run_isolated_validation.sh
 
 ## F. 真实 Provider 验收
 
-本发布准备 PR 不执行本节。执行时必须使用隔离环境和私有配置，并在完成后恢复安全配置。
+每次需要验证真实集成时，都应使用隔离环境和私有配置，并在完成后恢复安全配置。真实 Provider 验收不属于 Hermetic CI，不能用 pytest Mock 结果替代。
 
 - [ ] 显式设置 `EXTERNAL_CALL_POLICY=allow`。
 - [ ] Qwen 分类或回复成功。
@@ -113,8 +115,8 @@ bash scripts/run_isolated_validation.sh
 - [ ] 现场演示不依赖临时修改代码。
 - [ ] 已准备 Booking 演示。
 - [ ] 已准备 Consultation 与 Citations 演示。
-- [ ] 已准备认证 Session 轮换与吊销演示。
-- [ ] 已准备故障边界说明。
+- [ ] 默认演示聚焦业务价值、Agent 边界和可信预约执行。
+- [ ] 认证 Session 与故障注入作为备用深度演示准备完毕。
 - [ ] 已准备项目限制说明。
 - [ ] 不展示 Secret。
 - [ ] 不展示真实用户数据。
@@ -129,8 +131,6 @@ git push origin v1.0.0
 ```
 
 Tag 推送后再根据 [`RELEASE_NOTES_V1.0.md`](RELEASE_NOTES_V1.0.md) 创建 GitHub Release。
-
-> 本发布准备 PR 不执行 Tag 或 GitHub Release 命令。
 
 ## I. 发布后检查
 

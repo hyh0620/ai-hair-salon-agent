@@ -8,7 +8,8 @@ description: Prepare a local AI Hair Salon Agent checkout for development and ve
 ## Inputs
 
 - Project root: current repository.
-- Python: `python3.12`.
+- Main project Python: `python3.12`.
+- MCP Knowledge Service: independent virtual environment; its project metadata supports Python 3.11+.
 - Optional MCP Knowledge Service path supplied through `.env`.
 
 ## Pipeline
@@ -45,9 +46,11 @@ description: Prepare a local AI Hair Salon Agent checkout for development and ve
 
 - Local `.venv`.
 - Local `.env` with placeholders.
-- Next command: start MCP Knowledge Service, then start FastAPI.
+- Next command: start FastAPI. When RAG is enabled and configured, FastAPI lifespan starts and manages the MCP stdio child process.
 
 ## Failure Handling
 
 - Do not print API keys.
 - If MCP path variables are missing, leave `RAG_MCP_ENABLED=false` until configured.
+- Do not install the main project and MCP Knowledge Service into the same virtual environment.
+- Manual MCP server startup is only for standalone stdio protocol validation, not normal application integration.
