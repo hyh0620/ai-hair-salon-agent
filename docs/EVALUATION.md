@@ -108,7 +108,7 @@ python -m compileall agents api services db config eval
 当前主分支基线：
 
 ```text
-181 passed
+403 passed
 0 failed
 0 warnings
 ```

@@ -16,7 +16,7 @@ Raw report outputs under `eval/reports/` are local runtime artifacts and are not
 Start the normal app, an MCP-disabled app, and an LLM-disabled app, then run:
 
 ```bash
-NO_PROXY=127.0.0.1,localhost python3.11 eval/run_evaluation.py \
+NO_PROXY=127.0.0.1,localhost python eval/run_evaluation.py \
   --base-url http://127.0.0.1:8000 \
   --mcp-unavailable-base-url http://127.0.0.1:8002 \
   --llm-unconfigured-base-url http://127.0.0.1:8003 \

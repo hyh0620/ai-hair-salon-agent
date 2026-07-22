@@ -9,11 +9,11 @@ description: Run the release verification checklist for AI Hair Salon Agent.
 
 1. Dependency check:
    ```bash
-   python3.11 -m pip check
+   python -m pip check
    ```
 2. Unit and contract tests:
    ```bash
-   python3.11 -m pytest
+   bash scripts/test_hermetic.sh
    ```
 3. Start FastAPI and check:
    - `GET /health`
@@ -28,12 +28,12 @@ description: Run the release verification checklist for AI Hair Salon Agent.
    - runtime MCP failure returns 503
 6. Verify optional weather context behavior:
    ```bash
-   python3.11 -m pytest tests/test_weather_context_tool.py
+   python -m pytest tests/test_weather_context_tool.py
    ```
    Confirm weather failures never break booking and structured conflict booking does not call weather.
 7. Run full evaluation:
    ```bash
-   python3.11 eval/run_evaluation.py --timeout 120
+   python eval/run_evaluation.py --timeout 120
    ```
 
 ## Output

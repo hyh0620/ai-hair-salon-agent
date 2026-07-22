@@ -1,9 +1,9 @@
 # AGENTS.md
 
-- Python version: 3.11.
-- Install: `python3.11 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
-- Start app: `python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000`.
-- Test: `python3.11 -m pip check && python3.11 -m pytest`.
+- Python version: 3.12.
+- Install: `python3.12 -m venv .venv && source .venv/bin/activate && python -m pip install -c constraints-py312.txt -r requirements-dev.txt`.
+- Start app: `python -m uvicorn app:app --host 127.0.0.1 --port 8000 --no-proxy-headers`.
+- Test: `python -m pip check && bash scripts/test_hermetic.sh`.
 - Full evaluation: run `eval/run_evaluation.py` with normal, MCP-disabled, and LLM-disabled app instances.
 - MCP service config is required through `RAG_MCP_SERVER_PYTHON`, `RAG_MCP_SERVER_MODULE`, `RAG_MCP_SERVER_CWD`, and `RAG_MCP_COLLECTION`.
 - Booking rules must remain deterministic. RAG must not decide appointment success, price, duration, schedule, or conflicts.

@@ -7,9 +7,9 @@
 演示涉及两个独立仓库：
 
 * `ai-hair-salon-agent`：FastAPI 业务应用，主要开发与运行版本为 Python 3.12；
-* `mcp-knowledge-service`：独立 MCP Knowledge Service，使用自己的虚拟环境，其 `pyproject.toml` 要求 Python `>=3.11`。
+* `mcp-knowledge-service`：独立 MCP Knowledge Service，使用自己的 Python 3.12 虚拟环境。
 
-两个项目不要求使用完全相同的 Python 小版本。不要提交本地 `.env`、运行数据、日志、SQLite 数据库或向量索引。
+两个项目都使用 Python 3.12，但必须保留相互独立的 `.venv`。不要提交本地 `.env`、运行数据、日志、SQLite 数据库或向量索引。
 
 ## 启动主项目
 
@@ -48,7 +48,7 @@ python -m uvicorn app:app \
 
 ```bash
 cd <PATH_TO_MCP_KNOWLEDGE_SERVICE>
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 cp config/settings.example.yaml config/settings.yaml
