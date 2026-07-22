@@ -10,7 +10,7 @@ description: Run the verified local demo flow for AI Hair Salon Agent, including
 1. Ensure MCP Knowledge Service has ingested `salon_knowledge`.
 2. Start FastAPI:
    ```bash
-   python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8000
+   python -m uvicorn app:app --host 127.0.0.1 --port 8000 --no-proxy-headers
    ```
 3. Check health:
    ```bash
@@ -31,10 +31,10 @@ description: Run the verified local demo flow for AI Hair Salon Agent, including
    ```
 7. Run runtime MCP failure check:
    ```bash
-   python3.11 eval/mcp_runtime_failure_e2e.py --base-url http://127.0.0.1:8000 --timeout 60
+   python eval/mcp_runtime_failure_e2e.py --base-url http://127.0.0.1:8000 --timeout 60
    ```
 8. Optional weather context demo:
-   - Set `WEATHER_ENABLED=true`, `OPENWEATHER_API_KEY`, and `WEATHER_LOCATION` in a private `.env`.
+   - Set `WEATHER_ENABLED=true` in a private `.env`; the default provider is keyless Open-Meteo for Shanghai.
    - Complete a conversational booking.
    - Confirm the weather reminder appears only after the booking success message.
    - Reset `WEATHER_ENABLED=false` for normal verification.

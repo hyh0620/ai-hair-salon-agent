@@ -324,7 +324,7 @@ LLM 的作用是理解和组织，不是替代业务事实来源。
 
 | 项目 | 当前结果 |
 | --- | ---: |
-| pytest | 383 passed |
+| pytest | 403 passed |
 | Failed | 0 |
 | Warnings | 0 |
 
@@ -502,3 +502,11 @@ MCP 或天气集成验证必须在独立的显式流程中设置 `EXTERNAL_CALL_
 * [评估方法与结果](docs/EVALUATION.md)
 * [MCP 知识服务集成](docs/RAG_SERVICE_INTEGRATION.md)
 * [独立 MCP Knowledge Service](https://github.com/hyh0620/mcp-knowledge-service)
+
+### v1.0 发布候选准备
+
+当前仓库正在准备 v1.0 release candidate，尚未创建 v1.0.0 Tag 或 GitHub Release，真实 Provider 最终验收也不在本次发布材料 PR 中执行：
+
+* [v1.0 发布检查清单](docs/RELEASE_CHECKLIST.md)
+* [v1.0 Release Notes 草稿](docs/RELEASE_NOTES_V1.0.md)
+* [演示指南](docs/DEMO_GUIDE.md)

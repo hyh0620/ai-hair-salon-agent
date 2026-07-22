@@ -30,8 +30,20 @@ data/
 *.sqlite
 *.sqlite3
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
 *.index
 *.pkl
+chroma/
+chromadb/
+.chroma/
 eval/reports/
 eval/latest_report.json
 eval/latest_report.md
@@ -45,6 +57,7 @@ logs/
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
 .tox/
 .nox/
 .mypy_cache/
@@ -53,6 +66,7 @@ htmlcov/
 # --- IDE / OS ---
 .idea/
 .vscode/
+.codex/
 *.swp
 *.swo
 .DS_Store

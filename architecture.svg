@@ -56,9 +56,9 @@
   <text x="393" y="172" text-anchor="middle" class="node-text">Web · REST · Auth / CSRF</text>
 
   <rect x="548" y="112" width="280" height="94" rx="8" class="entry-node"/>
-  <text x="688" y="143" text-anchor="middle" class="node-title">RequestIdentity + Session</text>
-  <text x="688" y="168" text-anchor="middle" class="node-text">JWT 账户 / 游客 owner · 状态优先</text>
-  <text x="688" y="188" text-anchor="middle" class="tiny">账户校验 · async lock · TTL</text>
+  <text x="688" y="143" text-anchor="middle" class="node-title">身份与 Session 边界</text>
+  <text x="688" y="168" text-anchor="middle" class="node-text">Auth / Chat / owner 三者分离</text>
+  <text x="688" y="188" text-anchor="middle" class="tiny">JWT sid 校验 · async lock · TTL</text>
 
   <rect x="888" y="112" width="300" height="94" rx="8" class="entry-node"/>
   <text x="1038" y="143" text-anchor="middle" class="node-title">TaskClassificationAgent</text>

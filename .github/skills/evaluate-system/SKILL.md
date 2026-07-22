@@ -11,12 +11,12 @@ description: Run the reproducible evaluation suite and explain functional contra
 2. Start MCP-disabled app on port 8002:
    ```bash
    RAG_MCP_ENABLED=false DATABASE_URL=sqlite:////tmp/salon_eval_8002.db \
-     python3.11 -m uvicorn app:app --host 127.0.0.1 --port 8002
+     python -m uvicorn app:app --host 127.0.0.1 --port 8002 --no-proxy-headers
    ```
 3. Start LLM-disabled app on port 8003 using placeholder model variables.
 4. Run:
    ```bash
-   NO_PROXY=127.0.0.1,localhost python3.11 eval/run_evaluation.py \
+   NO_PROXY=127.0.0.1,localhost python eval/run_evaluation.py \
      --base-url http://127.0.0.1:8000 \
      --mcp-unavailable-base-url http://127.0.0.1:8002 \
      --llm-unconfigured-base-url http://127.0.0.1:8003 \

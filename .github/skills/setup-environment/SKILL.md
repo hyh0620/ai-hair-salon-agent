@@ -8,23 +8,24 @@ description: Prepare a local AI Hair Salon Agent checkout for development and ve
 ## Inputs
 
 - Project root: current repository.
-- Python: `python3.11`.
+- Python: `python3.12`.
 - Optional MCP Knowledge Service path supplied through `.env`.
 
 ## Pipeline
 
 1. Check Python:
    ```bash
-   python3.11 --version
+   python3.12 --version
    ```
 2. Create or reuse virtual environment:
    ```bash
-   python3.11 -m venv .venv
+   python3.12 -m venv .venv
    source .venv/bin/activate
    ```
 3. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   python -m pip install --upgrade pip
+   python -m pip install -c constraints-py312.txt -r requirements-dev.txt
    ```
 4. Create local config if missing:
    ```bash
@@ -37,7 +38,7 @@ description: Prepare a local AI Hair Salon Agent checkout for development and ve
    - `RAG_MCP_COLLECTION`
 6. Run dependency check:
    ```bash
-   python3.11 -m pip check
+   python -m pip check
    ```
 
 ## Output
