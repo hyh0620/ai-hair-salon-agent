@@ -146,8 +146,29 @@ def test_readme_links_release_and_demo_documents() -> None:
     )
 
     release_notes = RELEASE_NOTES.read_text(encoding="utf-8")
+    release_demo_url = (
+        "https://github.com/hyh0620/ai-hair-salon-agent/"
+        "blob/v1.0.0/docs/DEMO_GUIDE.md"
+    )
+    release_runbook_url = (
+        "https://github.com/hyh0620/ai-hair-salon-agent/"
+        "blob/v1.0.0/docs/DEMO_RUNBOOK.md"
+    )
+
+    assert release_demo_url in release_notes
+    assert release_runbook_url in release_notes
+    assert "](DEMO_GUIDE.md)" not in release_notes
+    assert "](DEMO_RUNBOOK.md)" not in release_notes
+    assert "blob/main/docs/DEMO_GUIDE.md" not in release_notes
+    assert "blob/main/docs/DEMO_RUNBOOK.md" not in release_notes
     assert "默认配置关闭真实外部 Provider" not in release_notes
     assert "创建 v1.0.0 Tag 前应" not in release_notes
+    assert "403 passed" in release_notes
+    assert "Functional Contract | 28 / 28" in release_notes
+    assert "真实 Provider 验收摘要" in release_notes
+    assert "Known Limitations" in release_notes
+    assert "--no-proxy-headers" in release_notes
+    assert "https://github.com/hyh0620/mcp-knowledge-service" in release_notes
 
 
 def test_tracked_text_does_not_contain_stale_test_baselines() -> None:
