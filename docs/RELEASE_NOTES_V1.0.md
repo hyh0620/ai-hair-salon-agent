@@ -111,7 +111,10 @@ python -m uvicorn app:app \
 
 ## Demo
 
-参见 [5 分钟面试演示](DEMO_GUIDE.md) 和 [本地运行与深度演示 Runbook](DEMO_RUNBOOK.md)。
+参见：
+
+- [5 分钟面试演示](https://github.com/hyh0620/ai-hair-salon-agent/blob/v1.0.0/docs/DEMO_GUIDE.md)
+- [本地运行与深度演示 Runbook](https://github.com/hyh0620/ai-hair-salon-agent/blob/v1.0.0/docs/DEMO_RUNBOOK.md)
 
 ## Related Repository
 
