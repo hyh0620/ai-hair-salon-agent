@@ -48,7 +48,7 @@ class ConsultationQueryResponse(BaseModel):
     "/query",
     response_model=ConsultationQueryResponse,
     summary="查询理发店知识",
-    description="通过 MCP Knowledge Service 执行 Dense Retrieval、BM25 与 RRF，并返回回答和 citations；不参与预约价格、时长、排班或冲突裁决。",
+    description="通过 MCP Knowledge Service 执行向量检索、BM25 与 RRF，并返回回答和引用来源；不参与预约价格、时长、排班或冲突裁决。",
 )
 async def query_consultation(request: Request, payload: ConsultationQueryRequest):
     """Query MCP Knowledge Service and answer from retrieved salon knowledge."""

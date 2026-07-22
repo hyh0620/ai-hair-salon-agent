@@ -161,7 +161,7 @@ def _record_created_appointment_behavior(
     description=(
         "使用服务目录、营业时间、发型师排班和 SQLite 冲突校验创建预约。"
         "未指定发型师时只返回真实候选；显式提交所选发型师后才执行原子写入。"
-        "登录账户的 owner 来自 JWT；游客必须提交普通 user_id。"
+        "登录账户的预约归属来自 JWT；游客必须提交普通 user_id。"
         "LLM、MCP 与 RAG 不参与最终业务裁决。"
     ),
 )

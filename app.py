@@ -32,7 +32,7 @@ OPENAPI_TAGS = [
     {"name": "系统状态", "description": "应用、数据库和外部知识服务健康状态。"},
     {"name": "账户认证", "description": "可选本地账户、Argon2 密码与 JWT 身份。"},
     {"name": "预约管理", "description": "由确定性服务目录、营业时间、排班和冲突规则执行预约。"},
-    {"name": "咨询服务", "description": "通过 MCP Knowledge Service 检索知识并返回 citations。"},
+    {"name": "咨询服务", "description": "通过 MCP Knowledge Service 检索知识并返回引用来源。"},
     {"name": "任务分类", "description": "识别用户意图并在预约与咨询职责之间路由。"},
     {"name": "知识服务状态", "description": "查看 MCP Knowledge Gateway 的连接状态。"},
     {"name": "发型师管理", "description": "查询发型师及 SQLite 持久化排班。"},
@@ -95,8 +95,8 @@ def create_app() -> FastAPI:
     """创建FastAPI应用实例"""
     
     app = FastAPI(
-        title="理发店智能预约AI代理",
-        description="提供理发店预约管理、智能咨询、发型师排班和用户行为分析等功能的API服务",
+        title="理发店智能预约 AI Agent",
+        description="提供理发店预约管理、智能咨询、发型师排班和用户行为分析等功能的 API 服务",
         version="1.0.0",
         openapi_tags=OPENAPI_TAGS,
         docs_url="/docs",

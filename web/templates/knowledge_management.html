@@ -75,7 +75,7 @@
 <main class="wrap">
     <section class="header">
         <h1>知识服务状态</h1>
-        <p>正式咨询知识检索由独立 MCP Knowledge Service 提供，本页面只展示连接与 ingestion 指引。</p>
+        <p>正式咨询知识检索由独立 MCP Knowledge Service 提供，本页面只展示连接与知识导入指引。</p>
     </section>
 
     {% set gateway = (knowledge_status or {}).get('gateway', {}) %}
@@ -97,17 +97,17 @@
             <dl>
                 <dt>知识后端</dt>
                 <dd>{{ (knowledge_status or {}).get('knowledge_backend', 'mcp_knowledge_service') }}</dd>
-                <dt>Collection</dt>
+                <dt>知识集合</dt>
                 <dd><code>{{ gateway.get('collection', 'salon_knowledge') }}</code></dd>
-                <dt>Server Python</dt>
+                <dt>服务端 Python</dt>
                 <dd><code>{{ gateway.get('server_python', '') }}</code></dd>
-                <dt>Server Module</dt>
+                <dt>服务端模块</dt>
                 <dd><code>{{ gateway.get('server_module', '') }}</code></dd>
-                <dt>Server CWD</dt>
+                <dt>服务端工作目录</dt>
                 <dd><code>{{ gateway.get('server_cwd', '') }}</code></dd>
-                <dt>Tools</dt>
+                <dt>可用工具</dt>
                 <dd>{{ gateway.get('tools', [])|join(', ') if gateway.get('tools') else '尚未获取' }}</dd>
-                <dt>Last Error</dt>
+                <dt>最近错误</dt>
                 <dd>{{ gateway.get('last_error') or '无' }}</dd>
             </dl>
 
@@ -121,7 +121,7 @@
 
     <section class="panel">
         <h2>知识源维护方式</h2>
-        <p class="muted">请在独立项目中维护知识源并通过真实 ingestion pipeline 导入，不再编辑本项目 SQLite 知识库。</p>
+        <p class="muted">请在独立项目中维护知识源并通过真实知识导入流程写入，不再编辑本项目 SQLite 知识库。</p>
         <pre>cd &lt;PATH_TO_MCP_KNOWLEDGE_SERVICE&gt;
 cp .env.example .env
 # 填写 DASHSCOPE_API_KEY / DASHSCOPE_BASE_URL / DASHSCOPE_EMBEDDING_MODEL
@@ -141,7 +141,7 @@ window.SalonAuthRefresh.configure({
 async function refreshStatus() {
     const res = await window.SalonAuthRefresh.fetch('/api/knowledge/');
     const data = await res.json();
-    alert(`连接状态：${data.gateway.connected ? '已连接' : '未连接'}\nTools：${(data.gateway.tools || []).join(', ')}`);
+    alert(`连接状态：${data.gateway.connected ? '已连接' : '未连接'}\n可用工具：${(data.gateway.tools || []).join(', ')}`);
 }
 
 async function reconnect() {

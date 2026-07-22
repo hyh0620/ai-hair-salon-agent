@@ -23,7 +23,7 @@ ANONYMOUS_OWNER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 ACCOUNT_OWNER_PREFIX = "account:"
 bearer_scheme = HTTPBearer(
     auto_error=False,
-    description="账户登录后签发的 JWT access token",
+    description="账户登录后签发的 JWT 访问令牌",
 )
 
 

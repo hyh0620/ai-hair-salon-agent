@@ -18,7 +18,7 @@ router = APIRouter(tags=["系统状态"])
 @router.get(
     "/health",
     summary="获取系统健康状态",
-    description="返回应用、SQLite、账户认证、MCP RAG collection 和 LLM 配置状态的机器可读结果。",
+    description="返回应用、SQLite、账户认证、MCP RAG 知识集合和 LLM 配置状态的机器可读结果。",
 )
 async def get_health(request: Request) -> Dict[str, Any]:
     return build_health_status(request)

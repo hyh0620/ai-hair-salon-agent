@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
   <title id="title">AI Hair Salon Agent 系统架构</title>
-  <desc id="desc">FastAPI 在入口解析可选 JWT 账户或游客身份，中心路由协调预约与咨询 Agent。预约链路通过确定性业务服务、SQLite 事务和并发保护生成预约编号；咨询链路通过 MCP 调用独立 RAG 知识服务并返回来源引用；天气仅在聊天预约成功后非阻塞调用。</desc>
+  <desc id="desc">FastAPI 在入口解析可选 JWT 账户或游客身份，中心路由协调预约与咨询 Agent。预约链路通过确定性业务服务、SQLite 事务和并发保护生成预约编号；知识咨询链路通过 MCP 调用独立 RAG 知识服务并返回引用来源；天气仅在聊天预约成功后非阻塞调用。</desc>
 
   <defs>
     <marker id="arrow-slate" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -40,7 +40,7 @@
   <rect width="1600" height="900" fill="#f8fafc"/>
 
   <text x="48" y="45" class="page-title">AI Hair Salon Agent 系统架构</text>
-  <text x="48" y="71" class="page-subtitle">中心路由协调的 Agentic Workflow：自然语言理解与确定性业务执行分离</text>
+  <text x="48" y="71" class="page-subtitle">中心路由协调的 Agent 工作流：自然语言理解与确定性业务执行分离</text>
 
   <rect x="1000" y="23" width="550" height="54" rx="8" fill="#dbeafe" stroke="#93c5fd"/>
   <text x="1275" y="46" text-anchor="middle" class="principle">Agent 负责理解 · 业务服务负责决策</text>
@@ -53,17 +53,17 @@
 
   <rect x="298" y="112" width="190" height="94" rx="8" class="entry-node"/>
   <text x="393" y="146" text-anchor="middle" class="node-title">FastAPI</text>
-  <text x="393" y="172" text-anchor="middle" class="node-text">Web · REST · Auth / CSRF</text>
+  <text x="393" y="172" text-anchor="middle" class="node-text">Web · REST · 认证 / CSRF</text>
 
   <rect x="548" y="112" width="280" height="94" rx="8" class="entry-node"/>
-  <text x="688" y="143" text-anchor="middle" class="node-title">身份与 Session 边界</text>
-  <text x="688" y="168" text-anchor="middle" class="node-text">Auth / Chat / owner 三者分离</text>
+  <text x="688" y="143" text-anchor="middle" class="node-title">身份与会话边界</text>
+  <text x="688" y="168" text-anchor="middle" class="node-text">认证 / 对话 / 预约归属三者分离</text>
   <text x="688" y="188" text-anchor="middle" class="tiny">JWT sid 校验 · async lock · TTL</text>
 
   <rect x="888" y="112" width="300" height="94" rx="8" class="entry-node"/>
   <text x="1038" y="143" text-anchor="middle" class="node-title">TaskClassificationAgent</text>
   <text x="1038" y="168" text-anchor="middle" class="node-text">规则预路由 + LLM 辅助理解</text>
-  <text x="1038" y="188" text-anchor="middle" class="tiny">中心协调 Booking / Consultation</text>
+  <text x="1038" y="188" text-anchor="middle" class="tiny">中心协调预约 / 知识咨询</text>
 
   <path d="M238 159 H298" class="arrow"/>
   <path d="M488 159 H548" class="arrow"/>
@@ -71,7 +71,7 @@
 
   <!-- Booking lane -->
   <rect x="30" y="246" width="1540" height="374" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="55" y="279" class="lane-title" fill="#1d4ed8">预约链路 · Booking</text>
+  <text x="55" y="279" class="lane-title" fill="#1d4ed8">预约链路</text>
   <text x="286" y="279" class="tiny">理解约束 → 查询候选 → 用户选择 → 最终确认 → 原子写入</text>
 
   <path d="M988 206 V228 H150 V310" class="booking-arrow"/>
@@ -85,7 +85,7 @@
   <rect x="280" y="310" width="220" height="105" rx="8" class="booking-node"/>
   <text x="390" y="344" text-anchor="middle" class="node-title">规则解析 + LLM 辅助</text>
   <text x="390" y="370" text-anchor="middle" class="node-text">日期 · 时间 · 服务</text>
-  <text x="390" y="391" text-anchor="middle" class="tiny">发型师 · 专长 · Slot Filling</text>
+  <text x="390" y="391" text-anchor="middle" class="tiny">发型师 · 专长 · 槽位补全</text>
 
   <rect x="535" y="310" width="190" height="105" rx="8" class="booking-node"/>
   <text x="630" y="344" text-anchor="middle" class="node-title">SERVICE_CATALOG</text>
@@ -99,7 +99,7 @@
 
   <rect x="1000" y="310" width="230" height="105" rx="8" class="booking-node"/>
   <text x="1115" y="344" text-anchor="middle" class="node-title">候选选择与最终确认</text>
-  <text x="1115" y="370" text-anchor="middle" class="node-text">Session 保存交互上下文</text>
+  <text x="1115" y="370" text-anchor="middle" class="node-text">会话保存交互上下文</text>
   <text x="1115" y="391" text-anchor="middle" class="tiny">不自动分配发型师</text>
 
   <rect x="1265" y="310" width="255" height="105" rx="8" class="booking-node"/>
@@ -116,7 +116,7 @@
   <rect x="690" y="470" width="365" height="105" rx="8" class="booking-node"/>
   <text x="872.5" y="500" text-anchor="middle" class="node-title">原子事务与最终校验</text>
   <text x="872.5" y="526" text-anchor="middle" class="node-text">BEGIN IMMEDIATE · 二次冲突检查</text>
-  <text x="872.5" y="548" text-anchor="middle" class="tiny">expected_version · SQLite Trigger · rollback</text>
+  <text x="872.5" y="548" text-anchor="middle" class="tiny">expected_version · SQLite 触发器 · 回滚</text>
 
   <rect x="1100" y="470" width="210" height="105" rx="8" class="data-node"/>
   <text x="1205" y="500" text-anchor="middle" class="node-title">SQLite</text>
@@ -126,7 +126,7 @@
   <rect x="1350" y="470" width="170" height="105" rx="8" class="data-node"/>
   <text x="1435" y="505" text-anchor="middle" class="node-title">预约成功</text>
   <text x="1435" y="532" text-anchor="middle" class="node-text">真实 appointment_id</text>
-  <text x="1435" y="553" text-anchor="middle" class="tiny">COMMIT 后返回</text>
+  <text x="1435" y="553" text-anchor="middle" class="tiny">事务提交后返回</text>
 
   <path d="M1392.5 415 V445 H872.5 V470" class="booking-arrow"/>
   <path d="M1055 522.5 H1100" class="booking-arrow"/>
@@ -134,7 +134,7 @@
 
   <!-- Consultation lane -->
   <rect x="30" y="650" width="1540" height="176" rx="8" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
-  <text x="55" y="683" class="lane-title" fill="#047857">知识咨询链路 · Consultation</text>
+  <text x="55" y="683" class="lane-title" fill="#047857">知识咨询链路</text>
 
   <path d="M1088 206 H1550 V632 H160 V705" class="consult-arrow"/>
 
@@ -144,7 +144,7 @@
 
   <rect x="315" y="705" width="235" height="88" rx="8" class="consult-node"/>
   <text x="432.5" y="739" text-anchor="middle" class="node-title">MCPKnowledgeGateway</text>
-  <text x="432.5" y="765" text-anchor="middle" class="node-text">ClientSession · stdio</text>
+  <text x="432.5" y="765" text-anchor="middle" class="node-text">MCP 会话 · stdio</text>
 
   <rect x="600" y="705" width="260" height="88" rx="8" class="consult-node"/>
   <text x="730" y="739" text-anchor="middle" class="node-title">MCP Knowledge Service</text>
@@ -152,10 +152,10 @@
 
   <rect x="910" y="705" width="250" height="88" rx="8" class="consult-node"/>
   <text x="1035" y="739" text-anchor="middle" class="node-title">RAG 检索与融合</text>
-  <text x="1035" y="765" text-anchor="middle" class="node-text">Dense + BM25 + RRF</text>
+  <text x="1035" y="765" text-anchor="middle" class="node-text">向量检索 + BM25 + RRF</text>
 
   <rect x="1210" y="705" width="220" height="88" rx="8" class="consult-node"/>
-  <text x="1320" y="739" text-anchor="middle" class="node-title">回答 + Citations</text>
+  <text x="1320" y="739" text-anchor="middle" class="node-title">回答 + 引用来源</text>
   <text x="1320" y="765" text-anchor="middle" class="node-text">来源可追溯</text>
 
   <path d="M265 749 H315" class="consult-arrow"/>
