@@ -81,16 +81,22 @@ def test_readme_links_release_and_demo_documents() -> None:
         "docs/RELEASE_CHECKLIST.md",
         "docs/RELEASE_NOTES_V1.0.md",
         "docs/DEMO_GUIDE.md",
+        "https://github.com/hyh0620/ai-hair-salon-agent/releases",
     )
 
     assert all(link in content for link in required_links)
+    assert "## v1.0 发布与验收" in content
+    assert "当前仓库正在准备 v1.0 release candidate" not in content
+    assert f"{383} passed" not in content
+    assert "383 个自动化测试" not in content
+    assert "真实 Provider 验收在显式允许外部调用的隔离流程中执行，不属于 Hermetic CI" in content
 
 
 def test_tracked_text_does_not_contain_stale_test_baselines() -> None:
     tracked = subprocess.check_output(
         ["git", "ls-files"], cwd=PROJECT_ROOT, text=True
     ).splitlines()
-    stale_counts = tuple(f"{value} passed" for value in (181, 262, 292, 338))
+    stale_counts = tuple(f"{value} passed" for value in (181, 262, 292, 338, 383))
     findings: list[str] = []
 
     for relative_path in tracked:
