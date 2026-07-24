@@ -117,7 +117,7 @@ def test_readme_links_release_and_demo_documents() -> None:
     assert "[5 分钟项目演示](docs/DEMO_GUIDE.md)" in content
     assert "[本地运行与深度演示手册](docs/DEMO_RUNBOOK.md)" in content
     assert "## v1.0 发布与验收" in content
-    assert "413 passed" in content
+    assert "414 passed" in content
     assert "当前仓库正在准备 v1.0 release candidate" not in content
     assert f"{383} passed" not in content
     assert "383 个自动化测试" not in content

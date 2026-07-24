@@ -1,4 +1,5 @@
 import copy
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -312,6 +313,25 @@ def test_verified_snapshot_rejects_incomplete_or_mock_run():
 
     with pytest.raises(ValueError, match="complete real run"):
         build_verified_snapshot(report)
+
+
+def test_committed_verified_snapshot_recomputes_successfully():
+    snapshot_path = (
+        Path(__file__).resolve().parents[1]
+        / "eval"
+        / "snapshots"
+        / "verified_20260724_4bbe6d6d.json"
+    )
+
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    verify_snapshot(payload)
+    assert payload["dataset_count"] == 28
+    assert payload["metrics"]["functional_contract"]["api_contract_pass"] == {
+        "numerator": 28,
+        "denominator": 28,
+        "rate": 1.0,
+    }
 
 
 def _result(

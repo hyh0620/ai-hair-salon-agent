@@ -16,6 +16,11 @@
 
 `eval/reports/` 下的原始报告属于本地运行产物，不提交到仓库。
 
+当前公开快照为：
+
+* `snapshots/verified_20260724_4bbe6d6d.json`；
+* `snapshots/verified_20260724_4bbe6d6d.md`。
+
 预约用例使用 `{{EVAL_DATE_DAY_1}}` 和 `{{EVAL_DATE_DAY_2}}`。执行器在一轮评估开始时统一将它们解析为未来工作日，并把实际日期和每条用例的已解析时间写入报告。
 
 ## 运行

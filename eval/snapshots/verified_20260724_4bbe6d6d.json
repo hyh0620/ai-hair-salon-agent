@@ -1,0 +1,949 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-24T06:07:31.503366+00:00",
+  "git_commit_sha": "4bbe6d6d67d5c259639d0f216738a33b152a1eab",
+  "dataset_sha256": "1da815ff693ccaa5b0bf82048380f74f3b2044f594f3186b507147fc41d9e5ea",
+  "corpus_version": "salon_knowledge@2026.07",
+  "collection": "salon_knowledge",
+  "dataset_count": 28,
+  "samples_by_category": {
+    "booking": 8,
+    "rag": 8,
+    "routing": 6,
+    "exception": 6
+  },
+  "model": "qwen:qwen-plus",
+  "embedding_model": "text-embedding-v4",
+  "evaluation_dates": {
+    "evaluation_base_date": "2026-08-03",
+    "resolved_dates": {
+      "EVAL_DATE_DAY_1": "2026-08-03",
+      "EVAL_DATE_DAY_2": "2026-08-04"
+    },
+    "timezone": "Asia/Shanghai"
+  },
+  "metrics": {
+    "functional_contract": {
+      "api_contract_pass": {
+        "numerator": 28,
+        "denominator": 28,
+        "rate": 1.0
+      },
+      "booking_contract_pass": {
+        "numerator": 9,
+        "denominator": 9,
+        "rate": 1.0
+      },
+      "booking_conflict_contract_pass": {
+        "numerator": 2,
+        "denominator": 2,
+        "rate": 1.0
+      },
+      "mcp_unavailable_contract_pass": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1.0
+      },
+      "api_error_contract_pass": {
+        "numerator": 8,
+        "denominator": 8,
+        "rate": 1.0
+      }
+    },
+    "booking": {
+      "booking_success_rate": {
+        "numerator": 3,
+        "denominator": 3,
+        "rate": 1.0
+      },
+      "conflict_block_rate": {
+        "numerator": 2,
+        "denominator": 2,
+        "rate": 1.0
+      },
+      "invalid_booking_rejection_rate": {
+        "numerator": 4,
+        "denominator": 4,
+        "rate": 1.0
+      },
+      "required_slot_completion_rate": {
+        "numerator": 3,
+        "denominator": 3,
+        "rate": 1.0
+      }
+    },
+    "routing": {
+      "route_accuracy": {
+        "numerator": 6,
+        "denominator": 6,
+        "rate": 1.0
+      },
+      "tool_or_service_selection_accuracy": {
+        "numerator": 6,
+        "denominator": 6,
+        "rate": 1.0
+      },
+      "unnecessary_tool_call_rate": {
+        "numerator": 0,
+        "denominator": 5,
+        "rate": 0.0
+      }
+    },
+    "retrieval_quality": {
+      "rag_cases_evaluated": 11,
+      "hit_at_1": {
+        "numerator": 10,
+        "denominator": 11,
+        "rate": 0.9091
+      },
+      "hit_at_3": {
+        "numerator": 11,
+        "denominator": 11,
+        "rate": 1.0
+      },
+      "mrr": 0.9545,
+      "mrr_numerator_reciprocal_sum": 10.5,
+      "mrr_denominator": 11,
+      "citation_presence_rate": {
+        "numerator": 11,
+        "denominator": 11,
+        "rate": 1.0
+      },
+      "citation_expected_source_match_rate": {
+        "numerator": 11,
+        "denominator": 11,
+        "rate": 1.0
+      },
+      "empty_result_handling_correctness": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1.0
+      }
+    },
+    "stability": {
+      "mcp_unavailable_handling_correctness": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1.0
+      },
+      "api_error_contract_correctness": {
+        "numerator": 8,
+        "denominator": 8,
+        "rate": 1.0
+      },
+      "rag_server_tool_discovery_success": true
+    },
+    "latency": {
+      "consultation_api_p50_ms": 2047.15,
+      "consultation_api_p95_ms": 4755.56,
+      "consultation_api_samples": 13,
+      "booking_api_p50_ms": 7.3,
+      "booking_api_p95_ms": 40.47,
+      "booking_api_samples": 9
+    }
+  },
+  "case_results": [
+    {
+      "id": "B001",
+      "category": "booking",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "booking_confirmed",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 17.11,
+      "resolved_datetimes": {
+        "request_json.start_time": "2026-08-03 14:00"
+      }
+    },
+    {
+      "id": "B002",
+      "category": "booking",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 422,
+      "expected_http_status": 422,
+      "actual_status": 422,
+      "http_status": 422,
+      "expected_business_result": "missing_required_service_rejected",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 0.99,
+      "resolved_datetimes": {
+        "request_json.start_time": "2026-08-03 15:00"
+      }
+    },
+    {
+      "id": "B003",
+      "category": "booking",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 422,
+      "expected_http_status": 422,
+      "actual_status": 422,
+      "http_status": 422,
+      "expected_business_result": "missing_required_start_time_rejected",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 0.85,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "B004",
+      "category": "booking",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "specific_stylist_booking_confirmed",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 11.07,
+      "resolved_datetimes": {
+        "request_json.start_time": "2026-08-03 16:00"
+      }
+    },
+    {
+      "id": "B005",
+      "category": "booking",
+      "mode": "appointment_modify_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "appointment_modified_atomically",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 40.47,
+      "resolved_datetimes": {
+        "setup_request_json.start_time": "2026-08-03 17:00",
+        "update_request_json.start_time": "15:00",
+        "update_request_json.target_date": "2026-08-04"
+      }
+    },
+    {
+      "id": "B006",
+      "category": "booking",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 400,
+      "expected_http_status": 400,
+      "actual_status": 400,
+      "http_status": 400,
+      "expected_business_result": "outside_business_hours_rejected",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 4.89,
+      "resolved_datetimes": {
+        "request_json.start_time": "2026-08-03 23:00"
+      }
+    },
+    {
+      "id": "B007",
+      "category": "booking",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 409,
+      "expected_http_status": 409,
+      "actual_status": 409,
+      "http_status": 409,
+      "expected_business_result": "stylist_time_conflict_blocked",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 6.07,
+      "resolved_datetimes": {
+        "setup_request_json.start_time": "2026-08-03 18:00",
+        "request_json.start_time": "2026-08-03 18:00"
+      }
+    },
+    {
+      "id": "B008",
+      "category": "booking",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "policy_answer_with_sources",
+      "expected_sources": [
+        "booking_and_cancellation_policy.pdf"
+      ],
+      "expected_source": [
+        "booking_and_cancellation_policy.pdf"
+      ],
+      "returned_sources": [
+        "booking_and_cancellation_policy.pdf",
+        "membership_and_after_sales.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 3851.89,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R001",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_coloring_preparation",
+      "expected_sources": [
+        "hair_coloring_care.pdf"
+      ],
+      "expected_source": [
+        "hair_coloring_care.pdf"
+      ],
+      "returned_sources": [
+        "perm_and_scalp_care.pdf",
+        "hair_coloring_care.pdf"
+      ],
+      "first_relevant_rank": 2,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 4731.36,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R002",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_coloring_aftercare",
+      "expected_sources": [
+        "hair_coloring_care.pdf"
+      ],
+      "expected_source": [
+        "hair_coloring_care.pdf"
+      ],
+      "returned_sources": [
+        "hair_coloring_care.pdf",
+        "perm_and_scalp_care.pdf",
+        "membership_and_after_sales.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 2970.4,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R003",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_perm_aftercare",
+      "expected_sources": [
+        "perm_and_scalp_care.pdf"
+      ],
+      "expected_source": [
+        "perm_and_scalp_care.pdf"
+      ],
+      "returned_sources": [
+        "perm_and_scalp_care.pdf",
+        "service_catalog_guide.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 2047.15,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R004",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_scalp_care_scope",
+      "expected_sources": [
+        "perm_and_scalp_care.pdf"
+      ],
+      "expected_source": [
+        "perm_and_scalp_care.pdf"
+      ],
+      "returned_sources": [
+        "perm_and_scalp_care.pdf",
+        "stylist_specialty_guide.pdf",
+        "service_catalog_guide.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 3377.76,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R005",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_store_hours_and_address",
+      "expected_sources": [
+        "store_information.pdf"
+      ],
+      "expected_source": [
+        "store_information.pdf"
+      ],
+      "returned_sources": [
+        "store_information.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 1638.65,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R006",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_cancellation_policy",
+      "expected_sources": [
+        "booking_and_cancellation_policy.pdf"
+      ],
+      "expected_source": [
+        "booking_and_cancellation_policy.pdf"
+      ],
+      "returned_sources": [
+        "booking_and_cancellation_policy.pdf",
+        "service_catalog_guide.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 1430.8,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R007",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_membership_after_sales",
+      "expected_sources": [
+        "membership_and_after_sales.pdf"
+      ],
+      "expected_source": [
+        "membership_and_after_sales.pdf"
+      ],
+      "returned_sources": [
+        "membership_and_after_sales.pdf",
+        "booking_and_cancellation_policy.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 5226.19,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "R008",
+      "category": "rag",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "answer_with_service_overview",
+      "expected_sources": [
+        "service_catalog_guide.pdf"
+      ],
+      "expected_source": [
+        "service_catalog_guide.pdf"
+      ],
+      "returned_sources": [
+        "service_catalog_guide.pdf",
+        "store_information.pdf",
+        "membership_and_after_sales.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 2047.1,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "T001",
+      "category": "routing",
+      "mode": "task_classifier",
+      "expected_route": "other",
+      "actual_route": "other",
+      "expected_tool_or_service": "task_classifier",
+      "actual_tool_or_service": "task_classifier",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "classified_without_tool_call",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 727.24,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "T002",
+      "category": "routing",
+      "mode": "task_classifier",
+      "expected_route": "other",
+      "actual_route": "other",
+      "expected_tool_or_service": "task_classifier",
+      "actual_tool_or_service": "task_classifier",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "unrelated_request_classified_other",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 808.54,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "T003",
+      "category": "routing",
+      "mode": "service_catalog",
+      "expected_route": "service_catalog",
+      "actual_route": "service_catalog",
+      "expected_tool_or_service": "service_catalog",
+      "actual_tool_or_service": "service_catalog",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "catalog_price_duration_returned",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 0.0,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "T004",
+      "category": "routing",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "consultation_answer_without_booking",
+      "expected_sources": [
+        "hair_coloring_care.pdf"
+      ],
+      "expected_source": [
+        "hair_coloring_care.pdf"
+      ],
+      "returned_sources": [
+        "hair_coloring_care.pdf",
+        "membership_and_after_sales.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 4755.56,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "T005",
+      "category": "routing",
+      "mode": "service_catalog",
+      "expected_route": "service_catalog",
+      "actual_route": "service_catalog",
+      "expected_tool_or_service": "service_catalog",
+      "actual_tool_or_service": "service_catalog",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "catalog_price_duration_returned",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 0.0,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "T006",
+      "category": "routing",
+      "mode": "task_classifier",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "task_classifier",
+      "actual_tool_or_service": "task_classifier",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "classified_appointment",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 693.42,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "E001",
+      "category": "exception",
+      "mode": "mcp_unavailable_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 503,
+      "expected_http_status": 503,
+      "actual_status": 503,
+      "http_status": 503,
+      "expected_business_result": "mcp_rag_unavailable_error_contract",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 26.85,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "E002",
+      "category": "exception",
+      "mode": "mcp_direct",
+      "expected_route": "mcp_direct",
+      "actual_route": "mcp_direct",
+      "expected_tool_or_service": "query_knowledge_hub",
+      "actual_tool_or_service": "query_knowledge_hub",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "no_result_handled",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [
+        "query_knowledge_hub",
+        "list_collections",
+        "get_document_summary"
+      ],
+      "skipped": false,
+      "latency_ms": 1797.56,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "E003",
+      "category": "exception",
+      "mode": "rag_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "api_validation",
+      "actual_tool_or_service": "mcp_rag",
+      "expected_status": 422,
+      "expected_http_status": 422,
+      "actual_status": 422,
+      "http_status": 422,
+      "expected_business_result": "invalid_input_rejected",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 2.46,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "E004",
+      "category": "exception",
+      "mode": "llm_unconfigured_api",
+      "expected_route": "consultation",
+      "actual_route": "consultation",
+      "expected_tool_or_service": "mcp_rag_without_llm",
+      "actual_tool_or_service": "mcp_rag_without_llm",
+      "expected_status": 200,
+      "expected_http_status": 200,
+      "actual_status": 200,
+      "http_status": 200,
+      "expected_business_result": "retrieval_summary_without_llm",
+      "expected_sources": [
+        "store_information.pdf"
+      ],
+      "expected_source": [
+        "store_information.pdf"
+      ],
+      "returned_sources": [
+        "store_information.pdf"
+      ],
+      "first_relevant_rank": 1,
+      "contract_pass": true,
+      "retrieval_quality_pass": true,
+      "required_slots_present": false,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 965.45,
+      "resolved_datetimes": {}
+    },
+    {
+      "id": "E005",
+      "category": "exception",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 409,
+      "expected_http_status": 409,
+      "actual_status": 409,
+      "http_status": 409,
+      "expected_business_result": "duplicate_booking_rejected",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 8.82,
+      "resolved_datetimes": {
+        "setup_request_json.start_time": "2026-08-04 11:00",
+        "request_json.start_time": "2026-08-04 11:00"
+      }
+    },
+    {
+      "id": "E006",
+      "category": "exception",
+      "mode": "booking_api",
+      "expected_route": "appointment",
+      "actual_route": "appointment",
+      "expected_tool_or_service": "appointment_service",
+      "actual_tool_or_service": "appointment_service",
+      "expected_status": 400,
+      "expected_http_status": 400,
+      "actual_status": 400,
+      "http_status": 400,
+      "expected_business_result": "malformed_time_rejected",
+      "expected_sources": [],
+      "expected_source": [],
+      "returned_sources": [],
+      "first_relevant_rank": null,
+      "contract_pass": true,
+      "retrieval_quality_pass": null,
+      "required_slots_present": true,
+      "discovered_tools": [],
+      "skipped": false,
+      "latency_ms": 7.3,
+      "resolved_datetimes": {
+        "request_json.start_time": "not-a-time"
+      }
+    }
+  ]
+}
