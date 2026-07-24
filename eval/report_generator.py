@@ -23,6 +23,7 @@ CSV_FIELDS = [
     "expected_retrieval_mode",
     "actual_retrieval_mode",
     "expected_source",
+    "expected_sources",
     "returned_sources",
     "first_relevant_rank",
     "contract_pass",
@@ -30,6 +31,7 @@ CSV_FIELDS = [
     "latency_ms",
     "trace_id",
     "error",
+    "resolved_datetimes",
     "run_timestamp",
     "corpus_version",
     "model",
@@ -50,7 +52,14 @@ def generate_markdown(report: Dict[str, Any]) -> str:
     context = report.get("run_context") or {}
     if context:
         lines.append("## Run Context")
-        for key in ("git_commit_sha", "corpus_version", "model", "embedding_model"):
+        for key in (
+            "git_commit_sha",
+            "corpus_version",
+            "model",
+            "embedding_model",
+            "dataset_sha256",
+            "evaluation_dates",
+        ):
             lines.append(f"- `{key}`: {context.get(key)}")
         lines.append("")
 

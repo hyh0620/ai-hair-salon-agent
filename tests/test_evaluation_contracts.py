@@ -26,7 +26,7 @@ def load_cases():
 def test_golden_dataset_shape_and_counts():
     cases = load_cases()
 
-    assert 24 <= len(cases) <= 30
+    assert len(cases) == 28
     assert len({case["id"] for case in cases}) == len(cases)
 
     counts = {}
@@ -45,6 +45,7 @@ def test_golden_dataset_shape_and_counts():
 def test_golden_dataset_modes_are_known():
     known_modes = {
         "booking_api",
+        "appointment_modify_api",
         "rag_api",
         "service_catalog",
         "task_classifier",
@@ -55,6 +56,21 @@ def test_golden_dataset_modes_are_known():
 
     for case in load_cases():
         assert case["evaluation_mode"] in known_modes
+
+
+def test_golden_dataset_uses_dynamic_dates_and_real_modify_mode():
+    content = DATASET.read_text(encoding="utf-8")
+    cases = {case["id"]: case for case in load_cases()}
+
+    assert "2026-07-10" not in content
+    assert "2026-07-11" not in content
+    assert "{{EVAL_DATE_DAY_1}}" in content
+    assert "{{EVAL_DATE_DAY_2}}" in content
+    assert cases["B005"]["evaluation_mode"] == "appointment_modify_api"
+    assert cases["B005"]["expected_business_result"] == (
+        "appointment_modified_atomically"
+    )
+    assert "update_request_json" in cases["B005"]
 
 
 def test_report_generator_includes_metrics_sections():
@@ -95,6 +111,7 @@ def test_evaluation_result_csv_contract_fields_are_present():
         "expected_route",
         "actual_route",
         "expected_source",
+        "expected_sources",
         "returned_sources",
         "first_relevant_rank",
         "contract_pass",
@@ -102,6 +119,7 @@ def test_evaluation_result_csv_contract_fields_are_present():
         "latency_ms",
         "trace_id",
         "error",
+        "resolved_datetimes",
         "run_timestamp",
         "corpus_version",
         "model",

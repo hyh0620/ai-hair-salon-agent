@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
@@ -22,7 +23,14 @@ if str(PROJECT_ROOT) not in sys.path:
 from agents.task_classification.task_classifier import TaskClassifier
 from config.external_calls import assert_external_call_allowed, load_runtime_dotenv
 from config.model_provider import create_chat_model
+from eval.dataset_resolver import ResolvedEvaluationDataset, resolve_evaluation_cases
+from eval.evaluation_metrics import (
+    compute_metrics as compute_result_metrics,
+    first_matching_source_rank,
+    normalize_source_identifier,
+)
 from eval.report_generator import count_by_category, write_reports
+from eval.verified_snapshot import write_verified_snapshot
 from services.service_catalog import normalize_service
 
 
@@ -39,6 +47,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--markdown", default=str(REPORTS_DIR / "latest_summary.md"))
     parser.add_argument("--results-json", default=str(REPORTS_DIR / "latest_results.json"))
     parser.add_argument("--results-csv", default=str(REPORTS_DIR / "latest_results.csv"))
+    parser.add_argument(
+        "--evaluation-base-date",
+        default="",
+        help="Future weekday used for EVAL_DATE placeholders (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--verified-snapshot-dir",
+        default="",
+        help="Write a redacted verified snapshot after a complete real run.",
+    )
     parser.add_argument(
         "--corpus-version",
         default=os.getenv("SALON_KNOWLEDGE_CORPUS_VERSION", "salon_knowledge@2026.07"),
@@ -70,6 +88,7 @@ class HttpClient:
         method: str,
         path: str,
         json_body: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         request_trace_id = trace_id or f"eval-{int(time.time() * 1000)}"
@@ -78,6 +97,7 @@ class HttpClient:
             method,
             f"{self.base_url}{path}",
             json=json_body,
+            params=params,
             timeout=self.timeout,
             headers={"X-Trace-ID": request_trace_id},
         )
@@ -183,6 +203,143 @@ def evaluate_booking_case(client: HttpClient, case: Dict[str, Any], context: Dic
     )
 
 
+def evaluate_appointment_modify_case(
+    client: HttpClient,
+    case: Dict[str, Any],
+    context: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Create, read, and modify one appointment through public APIs only."""
+    setup_request = dict(case.get("setup_request_json") or {})
+    actor_id = str(setup_request.get("user_id") or "")
+    setup_response = client.request(
+        "POST",
+        "/api/appointment/create",
+        setup_request,
+        trace_id=f"eval-{case['id']}-setup",
+    )
+    setup_body = (
+        setup_response.get("body")
+        if isinstance(setup_response.get("body"), dict)
+        else {}
+    )
+    setup_data = (
+        setup_body.get("data")
+        if isinstance(setup_body.get("data"), dict)
+        else {}
+    )
+    appointment_id = setup_data.get("appointment_id")
+    stylist_id = setup_data.get("stylist_id")
+    original_start = setup_data.get("start_time")
+
+    if setup_response["status"] != 200 or not appointment_id or not actor_id:
+        return _case_result(
+            case=case,
+            context=context,
+            contract_pass=False,
+            retrieval_quality_pass=None,
+            response=setup_response,
+            actual_route="appointment",
+            actual_tool_or_service="appointment_service",
+            actual_business_result={
+                "setup_status": setup_response["status"],
+                "setup_created": bool(appointment_id),
+            },
+            error="appointment setup did not return an appointment_id",
+        )
+
+    detail_before = client.request(
+        "GET",
+        f"/api/appointment/{appointment_id}",
+        params={"user_id": actor_id},
+        trace_id=f"eval-{case['id']}-before",
+    )
+    before_data = _appointment_from_lifecycle_response(detail_before)
+    original_version = before_data.get("version")
+    original_date = str(before_data.get("start_time") or original_start)[:10]
+
+    update_request = dict(case.get("update_request_json") or {})
+    update_request["user_id"] = actor_id
+    update_request["expected_version"] = original_version
+    response = client.request(
+        "PATCH",
+        f"/api/appointment/{appointment_id}",
+        update_request,
+        trace_id=f"eval-{case['id']}",
+    )
+    updated = _appointment_from_operation_response(response)
+    updated_start = str(updated.get("start_time") or "")
+    updated_version = updated.get("version")
+    updated_stylist_id = updated.get("stylist_id") or stylist_id
+    updated_date = updated_start[:10]
+
+    old_schedule = _read_schedule(
+        client,
+        int(stylist_id),
+        original_date,
+        f"eval-{case['id']}-old-schedule",
+    )
+    new_schedule = _read_schedule(
+        client,
+        int(updated_stylist_id),
+        updated_date,
+        f"eval-{case['id']}-new-schedule",
+    )
+    old_released = not _has_busy_schedule(
+        old_schedule,
+        appointment_id,
+        start_time=original_start,
+    )
+    new_occupied = _has_busy_schedule(
+        new_schedule,
+        appointment_id,
+        start_time=updated_start,
+    )
+    expected_start = _expected_modified_start(case)
+    status_ok = response["status"] == case["expected_http_status"]
+    version_incremented = (
+        isinstance(original_version, int)
+        and updated_version == original_version + 1
+    )
+    time_changed = bool(
+        expected_start
+        and updated_start.startswith(expected_start.replace(" ", "T"))
+        and updated_start != str(original_start).replace(" ", "T")
+    )
+    operation_status = (
+        response.get("body", {}).get("data", {}).get("status")
+        if isinstance(response.get("body"), dict)
+        else None
+    )
+    contract_pass = all((
+        status_ok,
+        operation_status == "success",
+        time_changed,
+        version_incremented,
+        old_released,
+        new_occupied,
+    ))
+    return _case_result(
+        case=case,
+        context=context,
+        contract_pass=contract_pass,
+        retrieval_quality_pass=None,
+        response=response,
+        actual_route="appointment",
+        actual_tool_or_service="appointment_service",
+        actual_business_result={
+            "status": operation_status,
+            "appointment_id": appointment_id,
+            "original_start_time": original_start,
+            "updated_start_time": updated_start,
+            "original_version": original_version,
+            "updated_version": updated_version,
+            "old_schedule_released": old_released,
+            "new_schedule_busy": new_occupied,
+        },
+        error="" if contract_pass else "appointment modification contract failed",
+    )
+
+
 def evaluate_rag_case(client: HttpClient, case: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     response = client.request(
         "POST",
@@ -196,7 +353,10 @@ def evaluate_rag_case(client: HttpClient, case: Dict[str, Any], context: Dict[st
     actual_mode = body.get("retrieval_mode")
     retrieval_mode_ok = expected_mode == "not_applicable" or actual_mode == expected_mode
     sources = body.get("sources") if isinstance(body.get("sources"), list) else []
-    first_rank = _first_matching_rank(sources, case.get("expected_sources") or [])
+    first_rank = first_matching_source_rank(
+        sources,
+        case.get("expected_sources") or [],
+    )
     contract_pass = status_ok and retrieval_mode_ok
     retrieval_quality_pass = _retrieval_quality_pass(case, sources, first_rank)
     actual_result = {
@@ -266,7 +426,10 @@ async def evaluate_mcp_direct_case(case: Dict[str, Any], context: Dict[str, Any]
     latency_ms = (time.perf_counter() - start) * 1000
     citations = mcp_result.get("citations") or []
     sources = [{"title": item.get("title", ""), "source": item.get("source", "")} for item in citations]
-    first_rank = _first_matching_rank(sources, case.get("expected_sources") or [])
+    first_rank = first_matching_source_rank(
+        sources,
+        case.get("expected_sources") or [],
+    )
     no_result_expected = case.get("expected_business_result") == "no_result_handled"
     contract_pass = (
         not mcp_result.get("is_error")
@@ -343,7 +506,10 @@ def evaluate_llm_unconfigured_case(
     )
     body = response["body"] if isinstance(response["body"], dict) else {}
     sources = body.get("sources") if isinstance(body.get("sources"), list) else []
-    first_rank = _first_matching_rank(sources, case.get("expected_sources") or [])
+    first_rank = first_matching_source_rank(
+        sources,
+        case.get("expected_sources") or [],
+    )
     contract_pass = (
         response["status"] == case["expected_http_status"]
         and body.get("retrieval_mode") == case["expected_retrieval_mode"]
@@ -398,6 +564,7 @@ def _case_result(
         "expected_retrieval_mode": case.get("expected_retrieval_mode"),
         "actual_retrieval_mode": actual_retrieval_mode,
         "expected_source": case.get("expected_sources") or [],
+        "expected_sources": case.get("expected_sources") or [],
         "returned_sources": returned_sources or [],
         "first_relevant_rank": first_relevant_rank,
         "expected_business_result": case.get("expected_business_result"),
@@ -410,6 +577,13 @@ def _case_result(
         "trace_id": response.get("trace_id", ""),
         "error": error,
         "notes": case.get("notes", ""),
+        "required_slots_present": _required_slots_present(case),
+        "discovered_tools": (
+            list(actual_business_result.get("tools") or [])
+            if isinstance(actual_business_result, dict)
+            else []
+        ),
+        "resolved_datetimes": dict(case.get("_resolved_datetimes") or {}),
         "run_timestamp": context["run_timestamp"],
         "corpus_version": context["corpus_version"],
         "model": context["model"],
@@ -433,6 +607,7 @@ def _skipped_case(case: Dict[str, Any], context: Dict[str, Any], reason: str) ->
         "expected_retrieval_mode": case.get("expected_retrieval_mode"),
         "actual_retrieval_mode": None,
         "expected_source": case.get("expected_sources") or [],
+        "expected_sources": case.get("expected_sources") or [],
         "returned_sources": [],
         "first_relevant_rank": None,
         "expected_business_result": case.get("expected_business_result"),
@@ -445,12 +620,102 @@ def _skipped_case(case: Dict[str, Any], context: Dict[str, Any], reason: str) ->
         "trace_id": "",
         "error": reason,
         "notes": case.get("notes", ""),
+        "required_slots_present": _required_slots_present(case),
+        "discovered_tools": [],
+        "resolved_datetimes": dict(case.get("_resolved_datetimes") or {}),
         "run_timestamp": context["run_timestamp"],
         "corpus_version": context["corpus_version"],
         "model": context["model"],
         "embedding_model": context["embedding_model"],
         "git_commit_sha": context["git_commit_sha"],
     }
+
+
+def _appointment_from_lifecycle_response(
+    response: Dict[str, Any],
+) -> Dict[str, Any]:
+    body = response.get("body")
+    if not isinstance(body, dict):
+        return {}
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return {}
+    appointment = data.get("appointment")
+    return appointment if isinstance(appointment, dict) else {}
+
+
+def _appointment_from_operation_response(
+    response: Dict[str, Any],
+) -> Dict[str, Any]:
+    return _appointment_from_lifecycle_response(response)
+
+
+def _read_schedule(
+    client: HttpClient,
+    stylist_id: int,
+    target_date: str,
+    trace_id: str,
+) -> List[Dict[str, Any]]:
+    if not target_date:
+        return []
+    response = client.request(
+        "GET",
+        f"/api/stylists/{stylist_id}/schedule",
+        params={"date": target_date},
+        trace_id=trace_id,
+    )
+    return response["body"] if isinstance(response.get("body"), list) else []
+
+
+def _has_busy_schedule(
+    schedules: List[Dict[str, Any]],
+    appointment_id: int,
+    *,
+    start_time: Any,
+) -> bool:
+    expected_clock = _clock_value(start_time)
+    return any(
+        item.get("appointment_id") == appointment_id
+        and item.get("status") == "busy"
+        and _clock_value(item.get("start_time")) == expected_clock
+        for item in schedules
+    )
+
+
+def _clock_value(value: Any) -> str:
+    text = str(value or "")
+    if "T" in text:
+        text = text.split("T", 1)[1]
+    elif " " in text:
+        text = text.split(" ", 1)[1]
+    return text[:5]
+
+
+def _expected_modified_start(case: Dict[str, Any]) -> str:
+    update = case.get("update_request_json") or {}
+    target_date = str(update.get("target_date") or "")
+    target_time = str(update.get("start_time") or "")
+    if not target_date or not target_time:
+        return ""
+    return f"{target_date}T{target_time[:5]}"
+
+
+def _required_slots_present(case: Dict[str, Any]) -> bool:
+    if case.get("evaluation_mode") == "appointment_modify_api":
+        setup = case.get("setup_request_json") or {}
+        update = case.get("update_request_json") or {}
+        return bool(
+            setup.get("project")
+            and setup.get("start_time")
+            and setup.get("duration")
+            and (update.get("target_date") or update.get("start_time"))
+        )
+    request = case.get("request_json") or {}
+    return bool(
+        request.get("project")
+        and request.get("start_time")
+        and request.get("duration")
+    )
 
 
 def _business_result_from_booking_response(response: Dict[str, Any]) -> str:
@@ -462,16 +727,6 @@ def _business_result_from_booking_response(response: Dict[str, Any]) -> str:
     if status in {400, 422}:
         return "invalid_booking_rejected"
     return f"http_{status}"
-
-
-def _first_matching_rank(sources: List[Dict[str, Any]], expected_sources: List[str]) -> Optional[int]:
-    if not expected_sources:
-        return None
-    for idx, source in enumerate(sources, 1):
-        source_text = str(source.get("source") or source.get("title") or "")
-        if any(expected in source_text for expected in expected_sources):
-            return idx
-    return None
 
 
 def _retrieval_quality_pass(
@@ -490,206 +745,42 @@ def _retrieval_quality_pass(
 def _public_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     public = []
     for source in sources:
+        source_name = normalize_source_identifier(
+            source.get("source") or source.get("title")
+        )
         public.append({
             "title": source.get("title", ""),
-            "source": source.get("source", ""),
+            "source": source_name,
             "score": source.get("score", 0.0),
             "page": source.get("page"),
         })
     return public
 
 
-def compute_metrics(cases: List[Dict[str, Any]], results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    by_id = {item["id"]: item for item in results}
-    evaluated = [item for item in results if not item.get("skipped")]
-    booking_cases = [case for case in cases if case.get("evaluation_mode") == "booking_api"]
-    route_cases = [case for case in cases if case.get("category") == "routing"]
-
-    expected_success = [case for case in booking_cases if case.get("expected_http_status") == 200]
-    expected_conflict = [case for case in booking_cases if case.get("expected_http_status") == 409]
-    expected_invalid = [case for case in booking_cases if case.get("expected_http_status") in {400, 422}]
-    expected_required_slots = [
-        case for case in expected_success
-        if case.get("request_json", {}).get("project")
-        and case.get("request_json", {}).get("start_time")
-        and case.get("request_json", {}).get("duration")
-    ]
-
-    route_evaluated = [
-        by_id[case["id"]]
-        for case in route_cases
-        if case["id"] in by_id and not by_id[case["id"]].get("skipped")
-    ]
-    unnecessary_tool_cases = [
-        item for item in route_evaluated
-        if item.get("expected_tool_or_service") != "mcp_rag"
-    ]
-    source_expected = [
-        item for item in evaluated
-        if item.get("expected_source")
-        and item.get("mode") in {"rag_api", "llm_unconfigured_api", "mcp_direct"}
-    ]
-    no_result_cases = [
-        item for item in evaluated
-        if item.get("expected_business_result") == "no_result_handled"
-    ]
-    mcp_unavailable = [
-        item for item in evaluated
-        if item.get("mode") == "mcp_unavailable_api"
-    ]
-    api_error_contract = [
-        item for item in evaluated
-        if item.get("expected_http_status") in {400, 409, 422, 503}
-    ]
-    consultation_latencies = [
-        item["latency_ms"]
-        for item in evaluated
-        if item.get("mode") in {"rag_api", "llm_unconfigured_api", "mcp_unavailable_api"}
-    ]
-    booking_latencies = [
-        item["latency_ms"]
-        for item in evaluated
-        if item.get("mode") == "booking_api"
-    ]
-
-    hit1_n = sum(1 for item in source_expected if item.get("first_relevant_rank") == 1)
-    hit3_n = sum(
-        1
-        for item in source_expected
-        if item.get("first_relevant_rank") is not None and item["first_relevant_rank"] <= 3
-    )
-    source_match_n = sum(1 for item in source_expected if item.get("first_relevant_rank") is not None)
-    citation_presence_n = sum(1 for item in source_expected if len(item.get("returned_sources") or []) > 0)
-    reciprocal_sum = sum(
-        (1 / item["first_relevant_rank"]) if item.get("first_relevant_rank") else 0
-        for item in source_expected
-    )
-
-    return {
-        "functional_contract": {
-            "api_contract_pass": _ratio(sum(1 for item in evaluated if item.get("contract_pass")), len(evaluated)),
-            "booking_contract_pass": _ratio(
-                sum(1 for case in booking_cases if _contract_pass(by_id, case)),
-                len(booking_cases),
-            ),
-            "booking_conflict_contract_pass": _ratio(
-                sum(1 for case in expected_conflict if _contract_pass(by_id, case)),
-                len(expected_conflict),
-            ),
-            "mcp_unavailable_contract_pass": _ratio(
-                sum(1 for item in mcp_unavailable if item.get("contract_pass")),
-                len(mcp_unavailable),
-            ),
-            "api_error_contract_pass": _ratio(
-                sum(1 for item in api_error_contract if item.get("contract_pass")),
-                len(api_error_contract),
-            ),
-        },
-        "booking": {
-            "booking_success_rate": _ratio(
-                sum(1 for case in expected_success if _contract_pass(by_id, case)),
-                len(expected_success),
-            ),
-            "conflict_block_rate": _ratio(
-                sum(1 for case in expected_conflict if _contract_pass(by_id, case)),
-                len(expected_conflict),
-            ),
-            "invalid_booking_rejection_rate": _ratio(
-                sum(1 for case in expected_invalid if _contract_pass(by_id, case)),
-                len(expected_invalid),
-            ),
-            "required_slot_completion_rate": _ratio(
-                sum(1 for case in expected_required_slots if _contract_pass(by_id, case)),
-                len(expected_required_slots),
-            ),
-        },
-        "routing": {
-            "route_accuracy": _ratio(
-                sum(1 for item in route_evaluated if item.get("actual_route") == item.get("expected_route")),
-                len(route_evaluated),
-            ),
-            "tool_or_service_selection_accuracy": _ratio(
-                sum(1 for item in route_evaluated if item.get("actual_tool_or_service") == item.get("expected_tool_or_service")),
-                len(route_evaluated),
-            ),
-            "unnecessary_tool_call_rate": _ratio(
-                sum(1 for item in unnecessary_tool_cases if item.get("actual_tool_or_service") == "mcp_rag"),
-                len(unnecessary_tool_cases),
-            ),
-        },
-        "retrieval_quality": {
-            "rag_cases_evaluated": len(source_expected),
-            "hit_at_1": _ratio(hit1_n, len(source_expected)),
-            "hit_at_3": _ratio(hit3_n, len(source_expected)),
-            "mrr": round(reciprocal_sum / len(source_expected), 4) if source_expected else None,
-            "mrr_numerator_reciprocal_sum": round(reciprocal_sum, 4),
-            "mrr_denominator": len(source_expected),
-            "citation_presence_rate": _ratio(citation_presence_n, len(source_expected)),
-            "citation_expected_source_match_rate": _ratio(source_match_n, len(source_expected)),
-            "empty_result_handling_correctness": _ratio(
-                sum(1 for item in no_result_cases if item.get("contract_pass") and not item.get("returned_sources")),
-                len(no_result_cases),
-            ),
-        },
-        "stability": {
-            "mcp_unavailable_handling_correctness": _ratio(
-                sum(1 for item in mcp_unavailable if item.get("contract_pass")),
-                len(mcp_unavailable),
-            ),
-            "api_error_contract_correctness": _ratio(
-                sum(1 for item in api_error_contract if item.get("contract_pass")),
-                len(api_error_contract),
-            ),
-            "rag_server_tool_discovery_success": _tool_discovery_success(results),
-        },
-        "latency": {
-            "consultation_api_p50_ms": _percentile(consultation_latencies, 50),
-            "consultation_api_p95_ms": _percentile(consultation_latencies, 95),
-            "consultation_api_samples": len(consultation_latencies),
-            "booking_api_p50_ms": _percentile(booking_latencies, 50),
-            "booking_api_p95_ms": _percentile(booking_latencies, 95),
-            "booking_api_samples": len(booking_latencies),
-        },
-    }
+def compute_metrics(
+    cases: List[Dict[str, Any]],
+    results: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Compute metrics from case results; cases is retained for API compatibility."""
+    del cases
+    return compute_result_metrics(results)
 
 
-def _contract_pass(by_id: Dict[str, Dict[str, Any]], case: Dict[str, Any]) -> bool:
-    return bool(by_id.get(case["id"], {}).get("contract_pass"))
-
-
-def _ratio(numerator: int, denominator: int) -> Dict[str, Any]:
-    return {
-        "numerator": numerator,
-        "denominator": denominator,
-        "rate": round(numerator / denominator, 4) if denominator else None,
-    }
-
-
-def _percentile(values: List[float], percentile: int) -> Optional[float]:
-    if not values:
-        return None
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return round(ordered[0], 2)
-    index = round((percentile / 100) * (len(ordered) - 1))
-    return round(ordered[index], 2)
-
-
-def _tool_discovery_success(results: List[Dict[str, Any]]) -> bool:
-    for item in results:
-        actual = item.get("actual_business_result")
-        if isinstance(actual, dict) and "tools" in actual:
-            return "query_knowledge_hub" in actual.get("tools", [])
-    return False
-
-
-def build_run_context(args: argparse.Namespace) -> Dict[str, str]:
+def build_run_context(
+    args: argparse.Namespace,
+    resolved_dataset: ResolvedEvaluationDataset,
+    dataset_sha256: str,
+) -> Dict[str, Any]:
     return {
         "run_timestamp": datetime.now(timezone.utc).isoformat(),
         "corpus_version": args.corpus_version,
+        "collection": os.getenv("RAG_MCP_COLLECTION", "salon_knowledge"),
         "model": _model_identifier(),
         "embedding_model": _embedding_model_identifier(),
         "git_commit_sha": _git_sha(PROJECT_ROOT),
+        "git_worktree_clean": _git_worktree_clean(PROJECT_ROOT),
+        "dataset_sha256": dataset_sha256,
+        "evaluation_dates": resolved_dataset.context(),
     }
 
 
@@ -720,11 +811,31 @@ def _git_sha(cwd: Path) -> str:
         return "unknown"
 
 
+def _git_worktree_clean(cwd: Path) -> bool:
+    try:
+        output = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return not output.strip()
+    except Exception:
+        return False
+
+
 async def main_async() -> int:
     args = parse_args()
     load_runtime_dotenv()
-    cases = load_cases(Path(args.dataset))
-    context = build_run_context(args)
+    dataset_path = Path(args.dataset)
+    raw_cases = load_cases(dataset_path)
+    resolved_dataset = resolve_evaluation_cases(
+        raw_cases,
+        evaluation_base_date=args.evaluation_base_date or None,
+    )
+    cases = resolved_dataset.cases
+    dataset_sha256 = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+    context = build_run_context(args, resolved_dataset, dataset_sha256)
     client = HttpClient(args.base_url, args.timeout)
     mcp_unavailable_client = HttpClient(args.mcp_unavailable_base_url, args.timeout) if args.mcp_unavailable_base_url else None
     llm_unconfigured_client = HttpClient(args.llm_unconfigured_base_url, args.timeout) if args.llm_unconfigured_base_url else None
@@ -734,6 +845,10 @@ async def main_async() -> int:
         mode = case.get("evaluation_mode")
         if mode == "booking_api":
             results.append(evaluate_booking_case(client, case, context))
+        elif mode == "appointment_modify_api":
+            results.append(
+                evaluate_appointment_modify_case(client, case, context)
+            )
         elif mode == "rag_api":
             results.append(evaluate_rag_case(client, case, context))
         elif mode == "service_catalog":
@@ -765,6 +880,13 @@ async def main_async() -> int:
         Path(args.results_json),
         Path(args.results_csv),
     )
+    if args.verified_snapshot_dir:
+        snapshot_paths = write_verified_snapshot(
+            report,
+            Path(args.verified_snapshot_dir),
+        )
+        print(f"Wrote {snapshot_paths[0]}")
+        print(f"Wrote {snapshot_paths[1]}")
     failed_contracts = [
         item for item in results
         if not item.get("contract_pass") and not item.get("skipped")
